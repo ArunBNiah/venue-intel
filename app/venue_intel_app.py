@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import streamlit as st
 import pandas as pd
+import pydeck as pdk
 from datetime import datetime
 
 from venue_intel.storage import (
@@ -244,6 +245,83 @@ def get_m_confidence_note(m_score: float, venue_type: str) -> str:
         return "Limited evidence - interpret with caution"
 
 
+def score_to_color(score: float) -> list:
+    """Convert distribution fit score to RGB color.
+
+    High scores (80+) = Green
+    Medium scores (60-80) = Yellow/Orange
+    Low scores (<60) = Red
+    """
+    if score >= 80:
+        # Green
+        return [39, 174, 96, 200]
+    elif score >= 70:
+        # Light green
+        return [46, 204, 113, 200]
+    elif score >= 60:
+        # Yellow
+        return [241, 196, 15, 200]
+    elif score >= 50:
+        # Orange
+        return [230, 126, 34, 200]
+    else:
+        # Red
+        return [231, 76, 60, 200]
+
+
+def create_venue_map(df: pd.DataFrame) -> pdk.Deck:
+    """Create a pydeck map with venue markers colored by score."""
+
+    # Prepare map data
+    map_df = df[["name", "latitude", "longitude", "distribution_fit_score", "venue_type"]].copy()
+    map_df = map_df.dropna(subset=["latitude", "longitude"])
+
+    # Add color based on score
+    map_df["color"] = map_df["distribution_fit_score"].apply(score_to_color)
+
+    # Calculate center point
+    center_lat = map_df["latitude"].mean()
+    center_lon = map_df["longitude"].mean()
+
+    # Create the layer
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=map_df,
+        get_position=["longitude", "latitude"],
+        get_color="color",
+        get_radius=100,
+        radius_min_pixels=5,
+        radius_max_pixels=15,
+        pickable=True,
+    )
+
+    # Create the view
+    view_state = pdk.ViewState(
+        latitude=center_lat,
+        longitude=center_lon,
+        zoom=11,
+        pitch=0,
+    )
+
+    # Create tooltip
+    tooltip = {
+        "html": "<b>{name}</b><br/>Score: {distribution_fit_score}<br/>Type: {venue_type}",
+        "style": {
+            "backgroundColor": "steelblue",
+            "color": "white",
+            "fontSize": "12px",
+            "padding": "8px"
+        }
+    }
+
+    return pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip=tooltip,
+        map_style="mapbox://styles/mapbox/light-v10",
+    )
+
+
 # =============================================================================
 # Sidebar
 # =============================================================================
@@ -431,6 +509,33 @@ elif page == "Explore Venues":
         with col4:
             high_conf = (df["confidence_tier"] == "medium").sum()  # Historical max is medium
             st.metric("Medium+ Confidence", high_conf)
+
+        # Map view
+        st.divider()
+        st.subheader("🗺️ Venue Map")
+
+        # Color legend
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.markdown("🟢 Score 80+")
+        with col2:
+            st.markdown("🟡 Score 70-79")
+        with col3:
+            st.markdown("🟠 Score 60-69")
+        with col4:
+            st.markdown("🔴 Score 50-59")
+        with col5:
+            st.markdown("⭕ Score <50")
+
+        # Display map
+        try:
+            venue_map = create_venue_map(df)
+            st.pydeck_chart(venue_map)
+            st.caption("Hover over markers to see venue details. Scroll to zoom.")
+        except Exception as e:
+            st.warning(f"Could not display map: {e}")
+            st.info("Showing simple map instead")
+            st.map(df[["latitude", "longitude"]].dropna())
 
         # Venue detail expander
         st.divider()

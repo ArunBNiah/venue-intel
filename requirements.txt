@@ -12,6 +12,7 @@ openpyxl>=3.1.0
 
 # Web App
 streamlit>=1.30.0
+pydeck>=0.8.0
 
 # API (optional - for new city requests)
 # google-cloud-places>=0.1.0
