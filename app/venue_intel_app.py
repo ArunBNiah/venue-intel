@@ -153,6 +153,8 @@ def get_venues_filtered(
     has_great_cocktails: bool | None = None,
     is_upscale: bool | None = None,
     is_late_night: bool | None = None,
+    # Authority filters
+    on_worlds_50_best: bool | None = None,
 ):
     """Get filtered venues from database."""
     conn = get_connection()
@@ -198,6 +200,10 @@ def get_venues_filtered(
 
     if is_late_night:
         query += " AND is_late_night = 1"
+
+    # Authority filters
+    if on_worlds_50_best:
+        query += " AND on_worlds_50_best = 1"
 
     query += " ORDER BY distribution_fit_score DESC LIMIT ?"
     params.append(limit)
@@ -467,7 +473,7 @@ elif page == "Explore Venues":
     # Signal filters
     with st.expander("Beverage & Venue Signals"):
         st.caption("Filter by venue attributes (derived from Google data)")
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
             filter_serves_cocktails = st.checkbox("Serves Cocktails")
@@ -483,6 +489,9 @@ elif page == "Explore Venues":
 
         with col5:
             filter_late_night = st.checkbox("Late Night")
+
+        with col6:
+            filter_worlds_50_best = st.checkbox("World's 50 Best")
 
     # Advanced filters
     with st.expander("Advanced Filters"):
@@ -517,6 +526,7 @@ elif page == "Explore Venues":
         has_great_cocktails=filter_great_cocktails if 'filter_great_cocktails' in dir() else None,
         is_upscale=filter_upscale if 'filter_upscale' in dir() else None,
         is_late_night=filter_late_night if 'filter_late_night' in dir() else None,
+        on_worlds_50_best=filter_worlds_50_best if 'filter_worlds_50_best' in dir() else None,
     )
 
     st.caption(f"Showing {len(df)} venues")
@@ -641,6 +651,14 @@ elif page == "Explore Venues":
                 if venue_row['is_premium_indicator']:
                     st.info("✓ Premium Indicator")
 
+                # World's 50 Best badge
+                if venue_row.get('on_worlds_50_best') == 1:
+                    rank = venue_row.get('worlds_50_best_rank')
+                    if rank:
+                        st.success(f"🏆 World's 50 Best #{rank}")
+                    else:
+                        st.success("🏆 World's 50 Best Bar")
+
                 # Freshness
                 st.markdown("#### Data Freshness")
                 st.text(f"Scored: {venue_row['last_scored_at'][:10]}")
@@ -698,8 +716,8 @@ elif page == "Export Data":
     st.caption(f"{len(df)} venues match your criteria")
 
     if len(df) > 0:
-        # Prepare export dataframe with full details including signals
-        export_df = df[[
+        # Build column list (handle optional authority columns)
+        base_columns = [
             "name", "city", "country", "address",
             "venue_type", "distribution_fit_score",
             "v_score", "r_score", "m_score",
@@ -708,12 +726,8 @@ elif page == "Export Data":
             "serves_cocktails", "serves_spirits", "serves_wine", "serves_beer",
             "has_great_cocktails", "has_great_beer", "has_great_wine",
             "is_upscale", "is_late_night",
-            "rationale", "place_id",
-            "latitude", "longitude",
-            "last_scored_at", "score_version"
-        ]].copy()
-
-        export_df.columns = [
+        ]
+        base_names = [
             "Name", "City", "Country", "Address",
             "Venue Type", "Distribution Fit Score",
             "V Score", "R Score", "M Score",
@@ -722,10 +736,19 @@ elif page == "Export Data":
             "Serves Cocktails", "Serves Spirits", "Serves Wine", "Serves Beer",
             "Great Cocktails", "Great Beer", "Great Wine",
             "Upscale", "Late Night",
-            "Rationale", "Place ID",
-            "Latitude", "Longitude",
-            "Last Scored", "Score Version"
         ]
+
+        # Add authority columns if available
+        if "on_worlds_50_best" in df.columns:
+            base_columns.extend(["on_worlds_50_best", "worlds_50_best_rank", "authority_tier"])
+            base_names.extend(["World's 50 Best", "W50B Rank", "Authority Tier"])
+
+        base_columns.extend(["rationale", "place_id", "latitude", "longitude", "last_scored_at", "score_version"])
+        base_names.extend(["Rationale", "Place ID", "Latitude", "Longitude", "Last Scored", "Score Version"])
+
+        # Prepare export dataframe with full details including signals
+        export_df = df[[c for c in base_columns if c in df.columns]].copy()
+        export_df.columns = base_names[:len(export_df.columns)]
 
         # Preview
         st.subheader("Preview")
