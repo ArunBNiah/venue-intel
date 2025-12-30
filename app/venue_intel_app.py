@@ -698,13 +698,16 @@ elif page == "Export Data":
     st.caption(f"{len(df)} venues match your criteria")
 
     if len(df) > 0:
-        # Prepare export dataframe with full details
+        # Prepare export dataframe with full details including signals
         export_df = df[[
             "name", "city", "country", "address",
             "venue_type", "distribution_fit_score",
             "v_score", "r_score", "m_score",
             "volume_tier", "quality_tier", "price_tier",
             "confidence_tier", "is_premium_indicator",
+            "serves_cocktails", "serves_spirits", "serves_wine", "serves_beer",
+            "has_great_cocktails", "has_great_beer", "has_great_wine",
+            "is_upscale", "is_late_night",
             "rationale", "place_id",
             "latitude", "longitude",
             "last_scored_at", "score_version"
@@ -716,6 +719,9 @@ elif page == "Export Data":
             "V Score", "R Score", "M Score",
             "Volume Tier", "Quality Tier", "Price Tier",
             "Confidence", "Premium",
+            "Serves Cocktails", "Serves Spirits", "Serves Wine", "Serves Beer",
+            "Great Cocktails", "Great Beer", "Great Wine",
+            "Upscale", "Late Night",
             "Rationale", "Place ID",
             "Latitude", "Longitude",
             "Last Scored", "Score Version"
