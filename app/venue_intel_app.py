@@ -36,6 +36,53 @@ st.set_page_config(
 
 
 # =============================================================================
+# Custom Styling
+# =============================================================================
+
+st.markdown("""
+<style>
+    /* Confidence tier badges */
+    .confidence-high {
+        background-color: #28a745;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+    .confidence-medium {
+        background-color: #ffc107;
+        color: black;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+    .confidence-low {
+        background-color: #dc3545;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
+
+    /* Score breakdown bars */
+    .score-bar {
+        height: 8px;
+        border-radius: 4px;
+        margin: 4px 0;
+    }
+
+    /* Data freshness warning */
+    .freshness-warning {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 10px;
+        margin: 10px 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# =============================================================================
 # Database Queries
 # =============================================================================
 
@@ -71,6 +118,18 @@ def get_database_stats():
     # Top venue types
     stats["top_types"] = pd.read_sql_query(
         "SELECT venue_type, COUNT(*) as count FROM venues GROUP BY venue_type ORDER BY count DESC LIMIT 10",
+        conn
+    )
+
+    # Score version distribution
+    stats["score_versions"] = pd.read_sql_query(
+        "SELECT score_version, COUNT(*) as count FROM venues GROUP BY score_version ORDER BY count DESC",
+        conn
+    )
+
+    # Confidence distribution
+    stats["confidence_dist"] = pd.read_sql_query(
+        "SELECT confidence_tier, COUNT(*) as count FROM venues GROUP BY confidence_tier",
         conn
     )
 
@@ -151,6 +210,41 @@ def get_cities():
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def render_confidence_badge(confidence: str) -> str:
+    """Render confidence tier as colored badge."""
+    conf_lower = confidence.lower()
+    if conf_lower == "high":
+        return '<span class="confidence-high">HIGH</span>'
+    elif conf_lower == "medium":
+        return '<span class="confidence-medium">MEDIUM</span>'
+    else:
+        return '<span class="confidence-low">LOW</span>'
+
+
+def render_score_bar(score: float, max_score: float = 1.0, color: str = "#4CAF50") -> str:
+    """Render a score as a progress bar."""
+    pct = min(100, (score / max_score) * 100)
+    return f'<div class="score-bar" style="background: linear-gradient(to right, {color} {pct}%, #e0e0e0 {pct}%);"></div>'
+
+
+def get_m_confidence_note(m_score: float, venue_type: str) -> str:
+    """Generate a confidence note for M score based on available evidence."""
+    # M score is high confidence if venue type is strongly positive
+    strong_types = ["cocktail_bar", "wine_bar"]
+    moderate_types = ["bar", "lounge", "pub"]
+
+    if venue_type in strong_types:
+        return "Strong evidence (venue type)"
+    elif venue_type in moderate_types:
+        return "Moderate evidence (venue type)"
+    else:
+        return "Limited evidence - interpret with caution"
+
+
+# =============================================================================
 # Sidebar
 # =============================================================================
 
@@ -159,13 +253,27 @@ st.sidebar.caption("Distribution Prioritisation System")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["Overview", "Explore Venues", "Export Data", "Request New City"],
+    ["Overview", "Explore Venues", "Export Data", "Validation Export", "Request New City"],
     index=0,
 )
 
 st.sidebar.divider()
-st.sidebar.caption("v1.0-historical")
-st.sidebar.caption("Data may require refresh")
+
+# Score version and model info
+st.sidebar.subheader("Model Info")
+st.sidebar.markdown("""
+**Score Version:** `v1.0-historical`
+**Model:** V/R/M Weighted
+**Status:** Current best model
+""")
+
+st.sidebar.caption("Scores represent current model output, not absolute truth. Validate with domain expertise.")
+
+st.sidebar.divider()
+
+# Data freshness warning
+st.sidebar.subheader("Data Freshness")
+st.sidebar.warning("Historical import - refresh recommended for production use.")
 
 
 # =============================================================================
@@ -191,6 +299,24 @@ if page == "Overview":
 
     with col4:
         st.metric("Premium Venues", f"{stats['premium_count']:,}")
+
+    # Data quality callout
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📊 Confidence Distribution")
+        conf_df = stats["confidence_dist"].copy()
+        conf_df["confidence_tier"] = conf_df["confidence_tier"].str.title()
+        st.dataframe(conf_df, use_container_width=True, hide_index=True)
+        st.caption("Confidence reflects data volume. Historical imports capped at Medium.")
+
+    with col2:
+        st.subheader("📦 Score Versions")
+        version_df = stats["score_versions"].copy()
+        st.dataframe(version_df, use_container_width=True, hide_index=True)
+        st.caption("All data scored with same algorithm version.")
 
     st.divider()
 
@@ -271,17 +397,17 @@ elif page == "Explore Venues":
     st.caption(f"Showing {len(df)} venues")
 
     if len(df) > 0:
-        # Format for display
+        # Format for display - include freshness
         display_df = df[[
             "name", "city", "venue_type", "distribution_fit_score",
             "volume_tier", "quality_tier", "confidence_tier",
-            "is_premium_indicator", "address"
+            "is_premium_indicator", "last_scored_at"
         ]].copy()
 
         display_df.columns = [
             "Name", "City", "Type", "Score",
             "Volume", "Quality", "Confidence",
-            "Premium", "Address"
+            "Premium", "Last Scored"
         ]
 
         display_df["City"] = display_df["City"].str.title()
@@ -289,18 +415,90 @@ elif page == "Explore Venues":
         display_df["Volume"] = display_df["Volume"].str.replace("_", " ").str.title()
         display_df["Quality"] = display_df["Quality"].str.replace("_", " ").str.title()
         display_df["Confidence"] = display_df["Confidence"].str.title()
-        display_df["Premium"] = display_df["Premium"].map({1: "Yes", 0: "No"})
+        display_df["Premium"] = display_df["Premium"].map({1: "✓", 0: ""})
+        display_df["Last Scored"] = pd.to_datetime(display_df["Last Scored"]).dt.strftime("%Y-%m-%d")
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         # Quick stats
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Avg Score", f"{df['distribution_fit_score'].mean():.1f}")
         with col2:
             st.metric("Max Score", f"{df['distribution_fit_score'].max():.1f}")
         with col3:
             st.metric("Premium Count", df["is_premium_indicator"].sum())
+        with col4:
+            high_conf = (df["confidence_tier"] == "medium").sum()  # Historical max is medium
+            st.metric("Medium+ Confidence", high_conf)
+
+        # Venue detail expander
+        st.divider()
+        st.subheader("📊 Venue Score Breakdown")
+        st.caption("Select a venue to see detailed scoring components")
+
+        venue_names = df["name"].tolist()
+        selected_venue = st.selectbox("Select Venue", venue_names, key="venue_detail")
+
+        if selected_venue:
+            venue_row = df[df["name"] == selected_venue].iloc[0]
+
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.markdown(f"### {venue_row['name']}")
+                st.markdown(f"**{venue_row['address']}**")
+                st.markdown(f"*{venue_row['venue_type'].replace('_', ' ').title()}* · {venue_row['city'].title()}, {venue_row['country']}")
+
+                st.divider()
+
+                # Score breakdown
+                st.markdown("#### Score Components")
+
+                # V Score
+                v_pct = venue_row['v_score'] * 100
+                st.markdown(f"**V (Volume):** {venue_row['v_score']:.2f}")
+                st.progress(venue_row['v_score'])
+                st.caption(f"Volume tier: {venue_row['volume_tier'].replace('_', ' ').title()}")
+
+                # R Score
+                st.markdown(f"**R (Quality):** {venue_row['r_score']:.2f}")
+                st.progress(venue_row['r_score'])
+                st.caption(f"Quality tier: {venue_row['quality_tier'].replace('_', ' ').title()}")
+
+                # M Score with confidence note
+                st.markdown(f"**M (Relevance):** {venue_row['m_score']:.2f}")
+                st.progress(venue_row['m_score'])
+                m_note = get_m_confidence_note(venue_row['m_score'], venue_row['venue_type'])
+                st.caption(f"Evidence: {m_note}")
+
+            with col2:
+                st.markdown("#### Summary")
+                st.metric("Distribution Fit", f"{venue_row['distribution_fit_score']:.1f}/100")
+
+                # Confidence badge
+                conf = venue_row['confidence_tier'].title()
+                if conf == "High":
+                    st.success(f"Confidence: {conf}")
+                elif conf == "Medium":
+                    st.warning(f"Confidence: {conf}")
+                else:
+                    st.error(f"Confidence: {conf}")
+
+                # Premium indicator
+                if venue_row['is_premium_indicator']:
+                    st.info("✓ Premium Indicator")
+
+                # Freshness
+                st.markdown("#### Data Freshness")
+                st.text(f"Scored: {venue_row['last_scored_at'][:10]}")
+                st.text(f"Version: {venue_row['score_version']}")
+
+            # Rationale
+            st.divider()
+            st.markdown("#### Rationale")
+            st.info(venue_row['rationale'])
+
     else:
         st.info("No venues match your filters.")
 
@@ -348,7 +546,7 @@ elif page == "Export Data":
     st.caption(f"{len(df)} venues match your criteria")
 
     if len(df) > 0:
-        # Prepare export dataframe
+        # Prepare export dataframe with full details
         export_df = df[[
             "name", "city", "country", "address",
             "venue_type", "distribution_fit_score",
@@ -356,7 +554,8 @@ elif page == "Export Data":
             "volume_tier", "quality_tier", "price_tier",
             "confidence_tier", "is_premium_indicator",
             "rationale", "place_id",
-            "latitude", "longitude"
+            "latitude", "longitude",
+            "last_scored_at", "score_version"
         ]].copy()
 
         export_df.columns = [
@@ -366,7 +565,8 @@ elif page == "Export Data":
             "Volume Tier", "Quality Tier", "Price Tier",
             "Confidence", "Premium",
             "Rationale", "Place ID",
-            "Latitude", "Longitude"
+            "Latitude", "Longitude",
+            "Last Scored", "Score Version"
         ]
 
         # Preview
@@ -379,7 +579,7 @@ elif page == "Export Data":
         with col1:
             csv = export_df.to_csv(index=False)
             st.download_button(
-                label="Download CSV",
+                label="📥 Download CSV",
                 data=csv,
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
@@ -392,11 +592,109 @@ elif page == "Export Data":
             export_df.to_excel(buffer, index=False, sheet_name="Venues")
 
             st.download_button(
-                label="Download Excel",
+                label="📥 Download Excel",
                 data=buffer.getvalue(),
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
+
+# =============================================================================
+# Validation Export Page
+# =============================================================================
+
+elif page == "Validation Export":
+    st.title("Validation Export")
+
+    st.markdown("""
+    Export top venues for manual validation. Use this to:
+    - Review if rankings make sense
+    - Identify false positives / false negatives
+    - Build a "Golden Set" for sanity checks
+    """)
+
+    st.divider()
+
+    # Validation parameters
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        val_city = st.selectbox("City", get_cities(), key="val_city")
+
+    with col2:
+        val_type = st.selectbox(
+            "Venue Type",
+            ["cocktail_bar", "wine_bar", "bar", "pub", "restaurant", "All"],
+            key="val_type"
+        )
+
+    with col3:
+        val_count = st.selectbox("Top N venues", [10, 20, 50, 100], index=1)
+
+    # Get validation data
+    val_df = get_venues_filtered(
+        city=val_city if val_city != "All" else None,
+        venue_type=val_type if val_type != "All" else None,
+        min_score=0,
+        premium_only=False,
+        limit=val_count,
+    )
+
+    if len(val_df) > 0:
+        st.subheader(f"Top {len(val_df)} Venues for Validation")
+
+        # Create validation template
+        val_export = val_df[[
+            "name", "city", "venue_type",
+            "distribution_fit_score", "v_score", "r_score", "m_score",
+            "volume_tier", "quality_tier", "confidence_tier",
+            "rationale", "address"
+        ]].copy()
+
+        # Add validation columns
+        val_export["Human Agree (Y/N)"] = ""
+        val_export["Notes"] = ""
+        val_export["Suggested Rank"] = ""
+
+        val_export.columns = [
+            "Name", "City", "Type",
+            "Score", "V", "R", "M",
+            "Volume Tier", "Quality Tier", "Confidence",
+            "Rationale", "Address",
+            "Human Agree (Y/N)", "Notes", "Suggested Rank"
+        ]
+
+        # Display
+        st.dataframe(val_export.head(10), use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        st.markdown("### Validation Instructions")
+        st.markdown("""
+        1. Download the Excel file
+        2. For each venue, fill in:
+           - **Human Agree (Y/N)**: Does this ranking make sense?
+           - **Notes**: Why disagree? What's missing?
+           - **Suggested Rank**: Where should this venue be?
+        3. Focus on obvious errors first
+        4. Save findings for model tuning
+        """)
+
+        # Download
+        from io import BytesIO
+        buffer = BytesIO()
+        val_export.to_excel(buffer, index=False, sheet_name="Validation")
+
+        st.download_button(
+            label="📥 Download Validation Template",
+            data=buffer.getvalue(),
+            file_name=f"validation_{val_city}_{val_type}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        st.caption("Template includes columns for human feedback.")
+    else:
+        st.info("No venues match your criteria.")
 
 
 # =============================================================================
