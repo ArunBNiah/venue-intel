@@ -1,0 +1,17 @@
+# Venue Intelligence MVP
+# Core
+pandas>=2.0.0
+pydantic>=2.0.0
+requests>=2.28.0
+
+# Database
+# sqlite3 is built-in
+
+# Export
+openpyxl>=3.1.0
+
+# Web App
+streamlit>=1.30.0
+
+# API (optional - for new city requests)
+# google-cloud-places>=0.1.0
