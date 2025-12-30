@@ -342,7 +342,7 @@ Streamlit Cloud auto-redeploys from main branch (takes ~1 min).
 
 ---
 
-## Session Log (2024-12-30)
+## Session Log (2024-12-30) - Initial Build
 
 ### What was accomplished:
 1. Reviewed and refined project plan
@@ -357,6 +357,67 @@ Streamlit Cloud auto-redeploys from main branch (takes ~1 min).
 
 ### Time: ~4 hours
 ### Cost: ~$0.50 API calls (testing)
+
+---
+
+## Session Log (2024-12-30) - US Cities & Binary Signals
+
+### What was accomplished:
+
+**Data Expansion:**
+1. Imported New York (2,874 venues) and Chicago (2,156 venues)
+2. Total database now: 44,518 venues across 10 cities, 4 countries
+
+**Binary Signals (ToS-Compliant):**
+Added 9 derived binary signal columns:
+- `serves_cocktails`, `serves_wine`, `serves_beer`, `serves_spirits` (from Offerings)
+- `has_great_cocktails`, `has_great_beer`, `has_great_wine` (from Highlights)
+- `is_upscale` (from Atmosphere)
+- `is_late_night` (derived from working hours)
+
+Handled locale variations:
+- US: "Hard liquor", "Upscale"
+- UK/EU: "Spirits", "Upmarket"
+
+**UI Improvements:**
+1. Added interactive pydeck map with score color-coding
+2. Added "Beverage & Venue Signals" filter panel (5 checkboxes)
+3. Fixed map rendering (removed Mapbox token dependency)
+4. Added signals to CSV/Excel exports
+
+**Data Quality Fixes:**
+- Removed incorrect Berlin/UK venue
+- Normalized city names to lowercase
+- Fixed Düsseldorf Unicode normalization
+
+### Signal Coverage by City:
+| City | Serves Spirits | Upscale | Late Night |
+|------|----------------|---------|------------|
+| New York | 76% | 16% | 65% |
+| Chicago | 78% | 11% | 70% |
+| London | 46% | 7% | 30% |
+| Berlin | 62% | 6% | 43% |
+| Paris | 63% | 9% | 35% |
+
+### Cost: $0 (used historical data only)
+
+---
+
+## Current Database State
+
+**44,518 venues across 10 cities:**
+| City | Country | Venues |
+|------|---------|--------|
+| London | UK | 19,320 |
+| Berlin | Germany | 7,718 |
+| Paris | France | 5,443 |
+| New York | USA | 2,874 |
+| Chicago | USA | 2,156 |
+| Marseille | France | 1,860 |
+| Lyon | France | 1,755 |
+| Düsseldorf | Germany | 1,611 |
+| Toulouse | France | 956 |
+| Bordeaux | France | 825 |
 
 ---
 
