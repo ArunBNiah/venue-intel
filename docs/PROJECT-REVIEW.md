@@ -277,11 +277,41 @@ UNKNOWN: no data
 4. **Add authentication** - User accounts for commercial use
 5. **Brand category profiles** - Different scoring for whisky vs wine vs beer
 6. **Refresh strategy** - Identify stale data, selective refresh
+7. **Keyword search in reviews** - See details below
 
 ### Lower Priority
-7. **Custom domain** - Professional URL
-8. **Usage tracking** - Credits/subscription system
-9. **Affluence integration** - Location intelligence overlay (see docs/relevance-rubric.md)
+8. **Custom domain** - Professional URL
+9. **Usage tracking** - Credits/subscription system
+10. **Affluence integration** - Location intelligence overlay (see docs/relevance-rubric.md)
+
+---
+
+## Future Feature: Keyword Search in Reviews
+
+### Concept
+Allow users to search for venues where Google reviews mention specific keywords (e.g., "whisky", "non-alcoholic", "craft gin").
+
+### How It Works
+1. User enters keywords and selects a city
+2. System fetches reviews for **pre-filtered subset** (e.g., top 200 cocktail bars)
+3. Searches review text in-memory for keyword matches
+4. Returns venues ranked by mention count with snippets
+5. Stores derived theme tags (compliant) - discards raw review text
+
+### Cost Strategy (Option A - Pre-filter)
+- Only fetch reviews for high-value, pre-filtered venues
+- Example: Top 100 cocktail bars in London = ~$2.50
+- NOT all 19k venues = ~$475
+
+### Compliance
+- Display review snippets with Google attribution ✅
+- Store derived insights ("whisky_mentions": 3) ✅
+- Do NOT store raw review text ❌
+
+### API Details
+- Uses Place Details + Atmosphere tier: $25/1k venues
+- Returns up to 5 reviews per venue
+- No native "search within reviews" - we filter in our code
 
 ---
 
