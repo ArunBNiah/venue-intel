@@ -392,6 +392,17 @@ class VenueRecord(BaseModel):
     # Our generated content
     rationale: str = Field(..., description="Our explanation of the score")
 
+    # Binary signals (our derived flags from attribute presence)
+    serves_cocktails: bool | None = Field(None, description="Venue serves cocktails")
+    serves_wine: bool | None = Field(None, description="Venue serves wine")
+    serves_beer: bool | None = Field(None, description="Venue serves beer")
+    serves_spirits: bool | None = Field(None, description="Venue serves hard liquor/spirits")
+    has_great_cocktails: bool | None = Field(None, description="Highlighted for great cocktails")
+    has_great_beer: bool | None = Field(None, description="Highlighted for great beer selection")
+    has_great_wine: bool | None = Field(None, description="Highlighted for great wine list")
+    is_upscale: bool | None = Field(None, description="Upscale atmosphere")
+    is_late_night: bool | None = Field(None, description="Open past midnight")
+
     # Metadata
     brand_category: str = Field(default="premium_spirits")
     first_seen_at: datetime = Field(..., description="When we first discovered this venue")

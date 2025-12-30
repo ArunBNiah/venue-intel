@@ -37,7 +37,32 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     _ensure_tables(conn)
+    _migrate_add_binary_signals(conn)
     return conn
+
+
+def _migrate_add_binary_signals(conn: sqlite3.Connection) -> None:
+    """Add binary signal columns if they don't exist (migration)."""
+    cursor = conn.execute("PRAGMA table_info(venues)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    new_columns = [
+        ("serves_cocktails", "INTEGER"),
+        ("serves_wine", "INTEGER"),
+        ("serves_beer", "INTEGER"),
+        ("serves_spirits", "INTEGER"),
+        ("has_great_cocktails", "INTEGER"),
+        ("has_great_beer", "INTEGER"),
+        ("has_great_wine", "INTEGER"),
+        ("is_upscale", "INTEGER"),
+        ("is_late_night", "INTEGER"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in existing_columns:
+            conn.execute(f"ALTER TABLE venues ADD COLUMN {col_name} {col_type}")
+
+    conn.commit()
 
 
 def _ensure_tables(conn: sqlite3.Connection) -> None:
@@ -74,6 +99,17 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
 
             -- Our generated content
             rationale TEXT NOT NULL,
+
+            -- Binary signals (our derived flags)
+            serves_cocktails INTEGER,
+            serves_wine INTEGER,
+            serves_beer INTEGER,
+            serves_spirits INTEGER,
+            has_great_cocktails INTEGER,
+            has_great_beer INTEGER,
+            has_great_wine INTEGER,
+            is_upscale INTEGER,
+            is_late_night INTEGER,
 
             -- Metadata
             brand_category TEXT NOT NULL DEFAULT 'premium_spirits',
@@ -130,8 +166,12 @@ def save_venue(
             volume_tier, quality_tier, price_tier,
             venue_type, is_premium_indicator,
             distribution_fit_score, v_score, r_score, m_score, confidence_tier,
-            rationale, brand_category, first_seen_at, last_scored_at, score_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            rationale,
+            serves_cocktails, serves_wine, serves_beer, serves_spirits,
+            has_great_cocktails, has_great_beer, has_great_wine,
+            is_upscale, is_late_night,
+            brand_category, first_seen_at, last_scored_at, score_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         venue.place_id,
         venue.name,
@@ -151,6 +191,15 @@ def save_venue(
         venue.m_score,
         venue.confidence_tier.value,
         venue.rationale,
+        1 if venue.serves_cocktails else (0 if venue.serves_cocktails is False else None),
+        1 if venue.serves_wine else (0 if venue.serves_wine is False else None),
+        1 if venue.serves_beer else (0 if venue.serves_beer is False else None),
+        1 if venue.serves_spirits else (0 if venue.serves_spirits is False else None),
+        1 if venue.has_great_cocktails else (0 if venue.has_great_cocktails is False else None),
+        1 if venue.has_great_beer else (0 if venue.has_great_beer is False else None),
+        1 if venue.has_great_wine else (0 if venue.has_great_wine is False else None),
+        1 if venue.is_upscale else (0 if venue.is_upscale is False else None),
+        1 if venue.is_late_night else (0 if venue.is_late_night is False else None),
         venue.brand_category,
         first_seen,
         venue.last_scored_at.isoformat(),
@@ -352,6 +401,13 @@ def get_city_summary(city: str) -> dict:
 # Helpers
 # =============================================================================
 
+def _int_to_bool(val: int | None) -> bool | None:
+    """Convert SQLite integer to Python bool, preserving None."""
+    if val is None:
+        return None
+    return bool(val)
+
+
 def _row_to_venue_record(row: sqlite3.Row) -> VenueRecord:
     """Convert database row to VenueRecord."""
     return VenueRecord(
@@ -373,6 +429,15 @@ def _row_to_venue_record(row: sqlite3.Row) -> VenueRecord:
         m_score=row["m_score"],
         confidence_tier=ConfidenceTier(row["confidence_tier"]),
         rationale=row["rationale"],
+        serves_cocktails=_int_to_bool(row["serves_cocktails"]) if "serves_cocktails" in row.keys() else None,
+        serves_wine=_int_to_bool(row["serves_wine"]) if "serves_wine" in row.keys() else None,
+        serves_beer=_int_to_bool(row["serves_beer"]) if "serves_beer" in row.keys() else None,
+        serves_spirits=_int_to_bool(row["serves_spirits"]) if "serves_spirits" in row.keys() else None,
+        has_great_cocktails=_int_to_bool(row["has_great_cocktails"]) if "has_great_cocktails" in row.keys() else None,
+        has_great_beer=_int_to_bool(row["has_great_beer"]) if "has_great_beer" in row.keys() else None,
+        has_great_wine=_int_to_bool(row["has_great_wine"]) if "has_great_wine" in row.keys() else None,
+        is_upscale=_int_to_bool(row["is_upscale"]) if "is_upscale" in row.keys() else None,
+        is_late_night=_int_to_bool(row["is_late_night"]) if "is_late_night" in row.keys() else None,
         brand_category=row["brand_category"],
         first_seen_at=datetime.fromisoformat(row["first_seen_at"]),
         last_scored_at=datetime.fromisoformat(row["last_scored_at"]),
