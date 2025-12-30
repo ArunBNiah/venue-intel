@@ -147,6 +147,12 @@ def get_venues_filtered(
     volume_tier: str | None = None,
     quality_tier: str | None = None,
     limit: int = 100,
+    # Signal filters
+    serves_cocktails: bool | None = None,
+    serves_spirits: bool | None = None,
+    has_great_cocktails: bool | None = None,
+    is_upscale: bool | None = None,
+    is_late_night: bool | None = None,
 ):
     """Get filtered venues from database."""
     conn = get_connection()
@@ -176,6 +182,22 @@ def get_venues_filtered(
     if quality_tier and quality_tier != "All":
         query += " AND quality_tier = ?"
         params.append(quality_tier)
+
+    # Signal filters
+    if serves_cocktails:
+        query += " AND serves_cocktails = 1"
+
+    if serves_spirits:
+        query += " AND serves_spirits = 1"
+
+    if has_great_cocktails:
+        query += " AND has_great_cocktails = 1"
+
+    if is_upscale:
+        query += " AND is_upscale = 1"
+
+    if is_late_night:
+        query += " AND is_late_night = 1"
 
     query += " ORDER BY distribution_fit_score DESC LIMIT ?"
     params.append(limit)
@@ -318,7 +340,7 @@ def create_venue_map(df: pd.DataFrame) -> pdk.Deck:
         layers=[layer],
         initial_view_state=view_state,
         tooltip=tooltip,
-        map_style="mapbox://styles/mapbox/light-v10",
+        map_style="light",  # Use built-in style that doesn't require Mapbox token
     )
 
 
@@ -442,6 +464,26 @@ elif page == "Explore Venues":
     with col4:
         premium_only = st.checkbox("Premium Only")
 
+    # Signal filters
+    with st.expander("Beverage & Venue Signals"):
+        st.caption("Filter by venue attributes (derived from Google data)")
+        col1, col2, col3, col4, col5 = st.columns(5)
+
+        with col1:
+            filter_serves_cocktails = st.checkbox("Serves Cocktails")
+
+        with col2:
+            filter_serves_spirits = st.checkbox("Serves Spirits")
+
+        with col3:
+            filter_great_cocktails = st.checkbox("Great Cocktails")
+
+        with col4:
+            filter_upscale = st.checkbox("Upscale")
+
+        with col5:
+            filter_late_night = st.checkbox("Late Night")
+
     # Advanced filters
     with st.expander("Advanced Filters"):
         col1, col2, col3 = st.columns(3)
@@ -470,6 +512,11 @@ elif page == "Explore Venues":
         volume_tier=volume_tier if 'volume_tier' in dir() else None,
         quality_tier=quality_tier if 'quality_tier' in dir() else None,
         limit=limit if 'limit' in dir() else 100,
+        serves_cocktails=filter_serves_cocktails if 'filter_serves_cocktails' in dir() else None,
+        serves_spirits=filter_serves_spirits if 'filter_serves_spirits' in dir() else None,
+        has_great_cocktails=filter_great_cocktails if 'filter_great_cocktails' in dir() else None,
+        is_upscale=filter_upscale if 'filter_upscale' in dir() else None,
+        is_late_night=filter_late_night if 'filter_late_night' in dir() else None,
     )
 
     st.caption(f"Showing {len(df)} venues")
