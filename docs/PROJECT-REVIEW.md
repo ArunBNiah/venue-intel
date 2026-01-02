@@ -1,7 +1,7 @@
 # Venue Intelligence Project Review
 
-**Last Updated:** 2024-12-30
-**Status:** MVP Live
+**Last Updated:** 2025-01-02
+**Status:** MVP Live (v1.1)
 **App URL:** https://venue-intel-9tbkizjkdji3cdm5l8ljot.streamlit.app/
 **Repo:** https://github.com/ArunBNiah/venue-intel
 
@@ -146,35 +146,51 @@ UNKNOWN: no data
 
 ## Database Contents
 
-### Current State: 39,489 venues across 8 cities
+### Current State: 75,861 venues across 11 cities, 5 countries
 
-| City | Country | Venues | Premium |
-|------|---------|--------|---------|
-| London | UK | 19,320 | 1,236 |
-| Berlin | Germany | 7,718 | 309 |
-| Paris | France | 5,443 | 426 |
-| Marseille | France | 1,860 | 61 |
-| Lyon | France | 1,755 | 105 |
-| Düsseldorf | Germany | 1,611 | 62 |
-| Toulouse | France | 956 | 39 |
-| Bordeaux | France | 825 | 76 |
+| City | Country | Venues | W50B Bars |
+|------|---------|--------|-----------|
+| Tokyo | Japan | 28,725 | 8 |
+| London | UK | 19,320 | 7 |
+| Berlin | Germany | 7,718 | 1 |
+| New York | USA | 5,505 | 7 |
+| Paris | France | 5,443 | 3 |
+| Chicago | USA | 2,143 | 1 |
+| Marseille | France | 1,860 | - |
+| Lyon | France | 1,755 | - |
+| Düsseldorf | Germany | 1,611 | - |
+| Toulouse | France | 956 | - |
+| Bordeaux | France | 825 | - |
+
+### By Country
+| Country | Venues |
+|---------|--------|
+| Japan | 28,725 |
+| UK | 19,320 |
+| France | 10,839 |
+| Germany | 9,329 |
+| USA | 7,648 |
 
 ### Top Venue Types
-| Type | Count | Avg Score |
-|------|-------|-----------|
-| Restaurant | 18,552 | 62.8 |
-| Cafe | 5,064 | 49.4 |
-| Bar | 4,654 | 69.5 |
-| Pub | 2,929 | 63.6 |
-| Hotel | 1,730 | 56.7 |
-| Cocktail Bar | 817 | 81.4 |
-| Wine Bar | 374 | 77.9 |
+| Type | Count |
+|------|-------|
+| Restaurant | 24,753 |
+| Bar | 21,033 |
+| Cafe | 5,442 |
+| Pub | 3,856 |
+| Izakaya | 3,248 |
+| Cocktail Bar | 1,200+ |
+
+### Authority Data
+- **27 World's 50 Best Bars** flagged with rank and authority_tier
+- Authority tiers: `elite` (1-50), `notable` (51-100)
+- Stored in: `on_worlds_50_best`, `worlds_50_best_rank`, `authority_tier`
 
 ### Data Source
-- **Historical import** from user's previous research (8 CSV files)
+- **Historical import** from research data (CSV/XLSX files)
 - Marked as `score_version = "1.0-historical"`
 - Confidence capped at MEDIUM (unknown freshness)
-- Place IDs banked for future API refresh
+- Place IDs banked for future API refresh (~60% cost savings)
 
 ---
 
@@ -199,22 +215,34 @@ UNKNOWN: no data
 
 ---
 
-## Streamlit MVP Features
+## Streamlit MVP Features (v1.1)
 
 ### Pages
-1. **Overview** - Database stats, venue counts by city, charts
-2. **Explore Venues** - Filter by city, type, score, tiers, premium status
+1. **Overview** - Database stats, venue counts by city/country, charts
+2. **Explore Venues** - Multi-filter search with map visualization
 3. **Export Data** - Download filtered results as CSV/Excel
-4. **Request New City** - Cost estimate (API disabled by default)
+4. **Validation Export** - Export top venues for manual review
+5. **Request New City** - Cost estimate (API disabled by default)
 
-### Filters Available
-- City (dropdown)
-- Venue type (dropdown)
-- Minimum score (slider)
-- Premium only (checkbox)
-- Volume tier (dropdown)
-- Quality tier (dropdown)
-- Max results (dropdown)
+### Filter Capabilities
+- **City** - Dropdown with all 11 cities
+- **Venue Types** - Multi-select, sorted by frequency, formatted display
+- **Minimum Score** - Slider (0-100)
+- **Premium Only** - Checkbox
+- **World's 50 Best Only** - Checkbox
+- **Beverage Signals** - Serves Cocktails, Serves Spirits, Great Cocktails
+- **Venue Signals** - Upscale, Late Night
+- **Advanced** - Volume tier, Quality tier, Max results
+
+### Map Visualization
+- **Markers View** - Color-coded by score (green=80+, red=<50)
+- **Heatmap View** - Density visualization for hotspot identification
+- Toggle between views with radio buttons
+
+### Professional Styling
+- No emojis - text-based badges throughout
+- CSS-styled authority badges (W50B)
+- Clean legend with colored dots
 
 ---
 
@@ -266,23 +294,107 @@ UNKNOWN: no data
 
 ---
 
-## Next Steps (Prioritised)
+## Product Roadmap
 
-### High Priority
-1. **Improve UI/UX** - Better styling, mobile responsive, clearer navigation
-2. **Validate scoring** - Export top venues, review manually, tune weights
-3. **Enable new city requests** - Wire up API with cost confirmation
+### Guiding Principles
+- Deterministic scoring remains the source of truth
+- AI may interpret, but must not decide or override
+- All new signals must be explainable, bounded, and reviewable
+- Platform Terms of Service must be respected
+- Variable costs must remain predictable and controllable
 
-### Medium Priority
-4. **Add authentication** - User accounts for commercial use
-5. **Brand category profiles** - Different scoring for whisky vs wine vs beer
-6. **Refresh strategy** - Identify stale data, selective refresh
-7. **Keyword search in reviews** - See details below
+---
 
-### Lower Priority
-8. **Custom domain** - Professional URL
-9. **Usage tracking** - Credits/subscription system
-10. **Affluence integration** - Location intelligence overlay (see docs/relevance-rubric.md)
+### Phase 1: Foundation & Explanation (Current Focus)
+
+**Authority Signal Expansion**
+- [x] World's 50 Best Bars (1-100)
+- [ ] Asia's 50 Best Bars
+- [ ] Tales of the Cocktail Spirited Awards
+- [ ] Michelin Guide (for restaurant/bar overlap)
+- [ ] Local "Best of" lists per city
+
+**AI Explanation Layer**
+- [ ] OpenAI integration for natural language queries
+- [ ] "Explain this ranking" - Why is Venue A higher than B?
+- [ ] "Compare venues" - Trade-offs between X and Y
+- [ ] "Summarise patterns" - What defines top-tier venues in Paris?
+- [ ] Cost controls: query caching, token limits, rate limiting
+
+**Immediate Priorities**
+- [ ] Validate scoring - export top 50 per city, manual review
+- [ ] Enable new city requests - wire up API with cost confirmation
+- [ ] Add authentication - user accounts for commercial use
+
+---
+
+### Phase 2: Momentum & Signals (Near-Term)
+
+**Momentum Signals**
+- [ ] Review velocity tracking (via periodic Places API refresh)
+- [ ] Authority list delta (new additions vs last year)
+- [ ] Directional classification: Rising / Stable / Declining / Unknown
+- [ ] Momentum as context layer, not ranking input (initially)
+
+**Brand Category Profiles**
+- [ ] Different M-score weights for whisky vs wine vs beer vs NA
+- [ ] User-selectable brand lens
+- [ ] Category-specific keyword matching
+
+**AI Comparison Features**
+- [ ] Multi-venue comparison tables
+- [ ] Scenario exploration (not persona simulation)
+- [ ] "What aspects align with premium positioning?"
+
+**Data Quality**
+- [ ] Refresh strategy - identify stale data, selective API refresh
+- [ ] Data freshness indicators in UI
+- [ ] Confidence tier improvements
+
+---
+
+### Phase 3: Advanced Intelligence (Conditional)
+
+**Licensed Data Integration**
+- [ ] Evaluate licensed social/media data sources
+- [ ] Digital sophistication composite signal
+- [ ] Only proceed if clear value and ToS compliance
+
+**User-Defined Personas**
+- [ ] Users upload own persona definitions (from real research)
+- [ ] AI applies user's lens consistently across venues
+- [ ] NOT pre-built synthetic personas (risk of misuse)
+
+**Advanced Interpretive Queries**
+- [ ] Complex multi-factor queries
+- [ ] Historical trend analysis
+- [ ] Cross-city pattern comparison
+
+---
+
+### Deprioritised / Deferred
+
+| Feature | Reason |
+|---------|--------|
+| Social presence (has_instagram: Y/N) | Too weak without engagement metrics |
+| Pre-built synthetic personas | Risk of users over-weighting fiction |
+| Real-time social monitoring | ToS concerns, high cost |
+| Affluence integration | Evaluate after core features stable |
+
+---
+
+### Commercial Packaging (Future)
+
+**Core Subscription**
+- Authority badges (all sources)
+- AI-powered explanations & comparisons
+- Full filter and export capabilities
+
+**Premium Add-ons**
+- Momentum signals
+- Brand category profiles
+- User-defined persona upload
+- Advanced interpretive queries
 
 ---
 
@@ -403,21 +515,66 @@ Handled locale variations:
 
 ---
 
+## Session Log (2025-01-02) - Tokyo Import & UI Overhaul
+
+### Data Expansion
+1. Imported NYC boroughs (Brooklyn, Queens, Bronx) - 2,631 venues
+2. New York total now 5,505 venues
+3. Imported Tokyo metropolitan area - 28,725 venues
+4. Fixed JSON parsing for Tokyo signals (json.loads vs ast.literal_eval)
+5. Tokyo now largest city in database
+
+### World's 50 Best Integration
+- Fetched 1-100 list from theworlds50best.com
+- Matched and flagged 27 bars across all cities
+- Added columns: on_worlds_50_best, worlds_50_best_rank, authority_tier
+- Tokyo: 8 bars (Bar Benfiddich #3, The SG Club #10, etc.)
+- Clover Club (Brooklyn) added as #36
+
+### UI Improvements
+1. Multi-select venue type filter (can pick Bar + Pub + Cocktail Bar)
+2. Venue types sorted by count (Restaurant: 24,753 at top)
+3. Formatted display names (adult_entertainment_club → Adult Entertainment Club)
+4. Added heatmap view alongside marker view
+5. Removed all emojis - professional text badges
+6. CSS-styled authority badges
+7. Improved dropdown UX with placeholder text
+
+### Cost: $0 (all historical data imports)
+
+---
+
 ## Current Database State
 
-**44,518 venues across 10 cities:**
-| City | Country | Venues |
-|------|---------|--------|
-| London | UK | 19,320 |
-| Berlin | Germany | 7,718 |
-| Paris | France | 5,443 |
-| New York | USA | 2,874 |
-| Chicago | USA | 2,156 |
-| Marseille | France | 1,860 |
-| Lyon | France | 1,755 |
-| Düsseldorf | Germany | 1,611 |
-| Toulouse | France | 956 |
-| Bordeaux | France | 825 |
+**75,861 venues across 11 cities, 5 countries:**
+| City | Country | Venues | W50B |
+|------|---------|--------|------|
+| Tokyo | Japan | 28,725 | 8 |
+| London | UK | 19,320 | 7 |
+| Berlin | Germany | 7,718 | 1 |
+| New York | USA | 5,505 | 7 |
+| Paris | France | 5,443 | 3 |
+| Chicago | USA | 2,143 | 1 |
+| Marseille | France | 1,860 | - |
+| Lyon | France | 1,755 | - |
+| Düsseldorf | Germany | 1,611 | - |
+| Toulouse | France | 956 | - |
+| Bordeaux | France | 825 | - |
+
+**Total World's 50 Best bars flagged:** 27
+
+---
+
+## Recommended Next Steps (Immediate)
+
+Based on current state and roadmap, recommended focus:
+
+1. **Validate Scoring** - Export top 50 cocktail bars per major city, manual review with domain expert
+2. **Expand Authority Sources** - Add Asia's 50 Best Bars (would significantly enrich Tokyo data)
+3. **OpenAI Integration** - Build explanation layer with cost controls
+4. **Enable API Refresh** - Wire up new city requests with cost confirmation
+
+These deliver immediate value while setting foundation for Phase 2.
 
 ---
 
