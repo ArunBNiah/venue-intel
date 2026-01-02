@@ -30,7 +30,7 @@ from venue_intel.models import VolumeTier, QualityTier, PriceTier
 
 st.set_page_config(
     page_title="Venue Intelligence",
-    page_icon="🍸",
+    page_icon="V",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -78,6 +78,46 @@ st.markdown("""
         border-left: 4px solid #ffc107;
         padding: 10px;
         margin: 10px 0;
+    }
+
+    /* Professional badges */
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8em;
+        font-weight: 500;
+        margin-right: 4px;
+    }
+    .badge-authority {
+        background-color: #1a472a;
+        color: #ffd700;
+    }
+    .badge-premium {
+        background-color: #2c3e50;
+        color: white;
+    }
+    .badge-signal {
+        background-color: #e8e8e8;
+        color: #333;
+    }
+
+    /* Map legend styling */
+    .map-legend {
+        display: flex;
+        gap: 16px;
+        padding: 8px 0;
+        font-size: 0.85em;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .legend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -141,7 +181,7 @@ def get_database_stats():
 @st.cache_data(ttl=60)
 def get_venues_filtered(
     city: str | None = None,
-    venue_type: str | None = None,
+    venue_types: list[str] | None = None,  # Changed to list for multi-select
     min_score: float = 0,
     premium_only: bool = False,
     volume_tier: str | None = None,
@@ -166,9 +206,11 @@ def get_venues_filtered(
         query += " AND city = ?"
         params.append(city.lower())
 
-    if venue_type and venue_type != "All":
-        query += " AND venue_type = ?"
-        params.append(venue_type)
+    # Handle multiple venue types
+    if venue_types and len(venue_types) > 0:
+        placeholders = ",".join(["?" for _ in venue_types])
+        query += f" AND venue_type IN ({placeholders})"
+        params.extend(venue_types)
 
     if min_score > 0:
         query += " AND distribution_fit_score >= ?"
@@ -215,15 +257,36 @@ def get_venues_filtered(
 
 
 @st.cache_data(ttl=60)
-def get_venue_types():
-    """Get all venue types in database."""
+def get_venue_types_with_counts():
+    """Get all venue types with counts, sorted by frequency."""
     conn = get_connection()
-    types = pd.read_sql_query(
-        "SELECT DISTINCT venue_type FROM venues ORDER BY venue_type",
+    types_df = pd.read_sql_query(
+        """SELECT venue_type, COUNT(*) as count
+           FROM venues
+           GROUP BY venue_type
+           ORDER BY count DESC""",
         conn
     )
     conn.close()
-    return ["All"] + types["venue_type"].tolist()
+    return types_df
+
+def format_venue_type(venue_type: str) -> str:
+    """Format venue_type for display: 'adult_entertainment_club' -> 'Adult Entertainment Club'"""
+    return venue_type.replace("_", " ").title()
+
+def get_venue_type_options():
+    """Get venue type options formatted for display, sorted by count."""
+    types_df = get_venue_types_with_counts()
+    # Return list of tuples: (display_name, raw_value, count)
+    options = []
+    for _, row in types_df.iterrows():
+        display = format_venue_type(row['venue_type'])
+        options.append({
+            'display': f"{display} ({row['count']:,})",
+            'value': row['venue_type'],
+            'count': row['count']
+        })
+    return options
 
 
 @st.cache_data(ttl=60)
@@ -297,56 +360,81 @@ def score_to_color(score: float) -> list:
         return [231, 76, 60, 200]
 
 
-def create_venue_map(df: pd.DataFrame) -> pdk.Deck:
-    """Create a pydeck map with venue markers colored by score."""
+def create_venue_map(df: pd.DataFrame, map_type: str = "markers") -> pdk.Deck:
+    """Create a pydeck map with venue markers or heatmap.
 
+    Args:
+        df: DataFrame with venue data
+        map_type: "markers" for scatter plot, "heatmap" for density heatmap
+    """
     # Prepare map data
     map_df = df[["name", "latitude", "longitude", "distribution_fit_score", "venue_type"]].copy()
     map_df = map_df.dropna(subset=["latitude", "longitude"])
-
-    # Add color based on score
-    map_df["color"] = map_df["distribution_fit_score"].apply(score_to_color)
 
     # Calculate center point
     center_lat = map_df["latitude"].mean()
     center_lon = map_df["longitude"].mean()
 
-    # Create the layer
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=map_df,
-        get_position=["longitude", "latitude"],
-        get_color="color",
-        get_radius=100,
-        radius_min_pixels=5,
-        radius_max_pixels=15,
-        pickable=True,
-    )
+    if map_type == "heatmap":
+        # Heatmap layer for density visualization
+        layer = pdk.Layer(
+            "HeatmapLayer",
+            data=map_df,
+            get_position=["longitude", "latitude"],
+            get_weight="distribution_fit_score",
+            aggregation="SUM",
+            radius_pixels=50,
+            intensity=1,
+            threshold=0.1,
+            color_range=[
+                [255, 255, 178],   # Light yellow
+                [254, 204, 92],    # Yellow
+                [253, 141, 60],    # Orange
+                [240, 59, 32],     # Red-orange
+                [189, 0, 38],      # Dark red
+            ],
+        )
+        tooltip = None  # Heatmap doesn't support tooltips
+        zoom = 10
+    else:
+        # Scatter plot with colored markers
+        map_df["color"] = map_df["distribution_fit_score"].apply(score_to_color)
+
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=map_df,
+            get_position=["longitude", "latitude"],
+            get_color="color",
+            get_radius=100,
+            radius_min_pixels=5,
+            radius_max_pixels=15,
+            pickable=True,
+        )
+
+        tooltip = {
+            "html": "<b>{name}</b><br/>Score: {distribution_fit_score}<br/>Type: {venue_type}",
+            "style": {
+                "backgroundColor": "steelblue",
+                "color": "white",
+                "fontSize": "12px",
+                "padding": "8px"
+            }
+        }
+        zoom = 11
 
     # Create the view
     view_state = pdk.ViewState(
         latitude=center_lat,
         longitude=center_lon,
-        zoom=11,
+        zoom=zoom,
         pitch=0,
     )
-
-    # Create tooltip
-    tooltip = {
-        "html": "<b>{name}</b><br/>Score: {distribution_fit_score}<br/>Type: {venue_type}",
-        "style": {
-            "backgroundColor": "steelblue",
-            "color": "white",
-            "fontSize": "12px",
-            "padding": "8px"
-        }
-    }
 
     return pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
         tooltip=tooltip,
-        map_style="light",  # Use built-in style that doesn't require Mapbox token
+        map_style="light",
     )
 
 
@@ -412,14 +500,14 @@ if page == "Overview":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("📊 Confidence Distribution")
+        st.subheader("Confidence Distribution")
         conf_df = stats["confidence_dist"].copy()
         conf_df["confidence_tier"] = conf_df["confidence_tier"].str.title()
         st.dataframe(conf_df, use_container_width=True, hide_index=True)
         st.caption("Confidence reflects data volume. Historical imports capped at Medium.")
 
     with col2:
-        st.subheader("📦 Score Versions")
+        st.subheader("Score Versions")
         version_df = stats["score_versions"].copy()
         st.dataframe(version_df, use_container_width=True, hide_index=True)
         st.caption("All data scored with same algorithm version.")
@@ -455,25 +543,48 @@ if page == "Overview":
 elif page == "Explore Venues":
     st.title("Explore Venues")
 
-    # Filters
-    col1, col2, col3, col4 = st.columns(4)
+    # Get venue type options (sorted by count, formatted)
+    venue_type_options = get_venue_type_options()
+    venue_type_display_list = [opt['display'] for opt in venue_type_options]
+    venue_type_value_map = {opt['display']: opt['value'] for opt in venue_type_options}
+
+    # Primary filters
+    col1, col2 = st.columns(2)
 
     with col1:
-        city = st.selectbox("City", get_cities())
+        city = st.selectbox(
+            "City",
+            get_cities(),
+            index=0,
+            help="Select a city to filter venues"
+        )
 
     with col2:
-        venue_type = st.selectbox("Venue Type", get_venue_types())
+        selected_types_display = st.multiselect(
+            "Venue Types",
+            options=venue_type_display_list,
+            default=[],
+            placeholder="All venue types - click to filter",
+            help="Select one or more venue types (sorted by frequency)"
+        )
+        # Convert display names back to raw values
+        selected_venue_types = [venue_type_value_map[d] for d in selected_types_display]
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        min_score = st.slider("Minimum Score", 0, 100, 0)
+
+    with col2:
+        premium_only = st.checkbox("Premium Only")
 
     with col3:
-        min_score = st.slider("Min Score", 0, 100, 0)
-
-    with col4:
-        premium_only = st.checkbox("Premium Only")
+        filter_worlds_50_best = st.checkbox("World's 50 Best Only")
 
     # Signal filters
     with st.expander("Beverage & Venue Signals"):
-        st.caption("Filter by venue attributes (derived from Google data)")
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        st.caption("Filter by venue attributes")
+        col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             filter_serves_cocktails = st.checkbox("Serves Cocktails")
@@ -485,13 +596,10 @@ elif page == "Explore Venues":
             filter_great_cocktails = st.checkbox("Great Cocktails")
 
         with col4:
-            filter_upscale = st.checkbox("Upscale")
+            filter_upscale = st.checkbox("Upscale Venue")
 
         with col5:
             filter_late_night = st.checkbox("Late Night")
-
-        with col6:
-            filter_worlds_50_best = st.checkbox("World's 50 Best")
 
     # Advanced filters
     with st.expander("Advanced Filters"):
@@ -500,13 +608,15 @@ elif page == "Explore Venues":
         with col1:
             volume_tier = st.selectbox(
                 "Volume Tier",
-                ["All", "very_high", "high", "medium", "low", "very_low"]
+                ["All", "very_high", "high", "medium", "low", "very_low"],
+                format_func=lambda x: x.replace("_", " ").title() if x != "All" else "All Volume Tiers"
             )
 
         with col2:
             quality_tier = st.selectbox(
                 "Quality Tier",
-                ["All", "excellent", "good", "average", "below_average", "poor"]
+                ["All", "excellent", "good", "average", "below_average", "poor"],
+                format_func=lambda x: x.replace("_", " ").title() if x != "All" else "All Quality Tiers"
             )
 
         with col3:
@@ -515,18 +625,18 @@ elif page == "Explore Venues":
     # Get filtered data
     df = get_venues_filtered(
         city=city,
-        venue_type=venue_type,
+        venue_types=selected_venue_types if selected_venue_types else None,
         min_score=min_score,
         premium_only=premium_only,
-        volume_tier=volume_tier if 'volume_tier' in dir() else None,
-        quality_tier=quality_tier if 'quality_tier' in dir() else None,
-        limit=limit if 'limit' in dir() else 100,
-        serves_cocktails=filter_serves_cocktails if 'filter_serves_cocktails' in dir() else None,
-        serves_spirits=filter_serves_spirits if 'filter_serves_spirits' in dir() else None,
-        has_great_cocktails=filter_great_cocktails if 'filter_great_cocktails' in dir() else None,
-        is_upscale=filter_upscale if 'filter_upscale' in dir() else None,
-        is_late_night=filter_late_night if 'filter_late_night' in dir() else None,
-        on_worlds_50_best=filter_worlds_50_best if 'filter_worlds_50_best' in dir() else None,
+        volume_tier=volume_tier if volume_tier != "All" else None,
+        quality_tier=quality_tier if quality_tier != "All" else None,
+        limit=limit,
+        serves_cocktails=filter_serves_cocktails if filter_serves_cocktails else None,
+        serves_spirits=filter_serves_spirits if filter_serves_spirits else None,
+        has_great_cocktails=filter_great_cocktails if filter_great_cocktails else None,
+        is_upscale=filter_upscale if filter_upscale else None,
+        is_late_night=filter_late_night if filter_late_night else None,
+        on_worlds_50_best=filter_worlds_50_best if filter_worlds_50_best else None,
     )
 
     st.caption(f"Showing {len(df)} venues")
@@ -550,7 +660,7 @@ elif page == "Explore Venues":
         display_df["Volume"] = display_df["Volume"].str.replace("_", " ").str.title()
         display_df["Quality"] = display_df["Quality"].str.replace("_", " ").str.title()
         display_df["Confidence"] = display_df["Confidence"].str.title()
-        display_df["Premium"] = display_df["Premium"].map({1: "✓", 0: ""})
+        display_df["Premium"] = display_df["Premium"].map({1: "Yes", 0: ""})
         display_df["Last Scored"] = pd.to_datetime(display_df["Last Scored"]).dt.strftime("%Y-%m-%d")
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
@@ -569,26 +679,40 @@ elif page == "Explore Venues":
 
         # Map view
         st.divider()
-        st.subheader("🗺️ Venue Map")
+        st.subheader("Venue Map")
 
-        # Color legend
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # Map controls
+        col1, col2 = st.columns([1, 4])
         with col1:
-            st.markdown("🟢 Score 80+")
-        with col2:
-            st.markdown("🟡 Score 70-79")
-        with col3:
-            st.markdown("🟠 Score 60-69")
-        with col4:
-            st.markdown("🔴 Score 50-59")
-        with col5:
-            st.markdown("⭕ Score <50")
+            map_type = st.radio(
+                "Map Style",
+                ["Markers", "Heatmap"],
+                horizontal=True,
+                help="Markers show individual venues, Heatmap shows density"
+            )
+
+        # Legend for markers view
+        if map_type == "Markers":
+            st.markdown("""
+            <div class="map-legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#27ae60"></div> Score 80+</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> Score 70-79</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> Score 60-69</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#e67e22"></div> Score 50-59</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> Score &lt;50</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.caption("Heatmap intensity reflects venue density and score concentration")
 
         # Display map
         try:
-            venue_map = create_venue_map(df)
+            venue_map = create_venue_map(df, map_type="heatmap" if map_type == "Heatmap" else "markers")
             st.pydeck_chart(venue_map)
-            st.caption("Hover over markers to see venue details. Scroll to zoom.")
+            if map_type == "Markers":
+                st.caption("Hover over markers to see venue details. Scroll to zoom.")
+            else:
+                st.caption("Brighter areas indicate higher concentration of high-scoring venues.")
         except Exception as e:
             st.warning(f"Could not display map: {e}")
             st.info("Showing simple map instead")
@@ -596,11 +720,16 @@ elif page == "Explore Venues":
 
         # Venue detail expander
         st.divider()
-        st.subheader("📊 Venue Score Breakdown")
+        st.subheader("Venue Score Breakdown")
         st.caption("Select a venue to see detailed scoring components")
 
         venue_names = df["name"].tolist()
-        selected_venue = st.selectbox("Select Venue", venue_names, key="venue_detail")
+        selected_venue = st.selectbox(
+            "Select Venue",
+            venue_names,
+            key="venue_detail",
+            placeholder="Choose a venue..."
+        )
 
         if selected_venue:
             venue_row = df[df["name"] == selected_venue].iloc[0]
@@ -618,7 +747,6 @@ elif page == "Explore Venues":
                 st.markdown("#### Score Components")
 
                 # V Score
-                v_pct = venue_row['v_score'] * 100
                 st.markdown(f"**V (Volume):** {venue_row['v_score']:.2f}")
                 st.progress(venue_row['v_score'])
                 st.caption(f"Volume tier: {venue_row['volume_tier'].replace('_', ' ').title()}")
@@ -649,15 +777,15 @@ elif page == "Explore Venues":
 
                 # Premium indicator
                 if venue_row['is_premium_indicator']:
-                    st.info("✓ Premium Indicator")
+                    st.markdown('<span class="badge badge-premium">PREMIUM</span>', unsafe_allow_html=True)
 
                 # World's 50 Best badge
                 if venue_row.get('on_worlds_50_best') == 1:
                     rank = venue_row.get('worlds_50_best_rank')
                     if rank:
-                        st.success(f"🏆 World's 50 Best #{rank}")
+                        st.markdown(f'<span class="badge badge-authority">W50B #{rank}</span>', unsafe_allow_html=True)
                     else:
-                        st.success("🏆 World's 50 Best Bar")
+                        st.markdown('<span class="badge badge-authority">W50B Listed</span>', unsafe_allow_html=True)
 
                 # Freshness
                 st.markdown("#### Data Freshness")
@@ -682,24 +810,36 @@ elif page == "Export Data":
 
     st.write("Download venue data for your analysis.")
 
-    # Filters (same as explore)
-    col1, col2, col3 = st.columns(3)
+    # Get venue type options (sorted by count, formatted)
+    export_venue_type_options = get_venue_type_options()
+    export_venue_type_display_list = [opt['display'] for opt in export_venue_type_options]
+    export_venue_type_value_map = {opt['display']: opt['value'] for opt in export_venue_type_options}
+
+    # Filters
+    col1, col2 = st.columns(2)
 
     with col1:
         city = st.selectbox("City", get_cities(), key="export_city")
 
     with col2:
-        venue_type = st.selectbox("Venue Type", get_venue_types(), key="export_type")
+        export_selected_types = st.multiselect(
+            "Venue Types",
+            options=export_venue_type_display_list,
+            default=[],
+            placeholder="All venue types - click to filter",
+            key="export_types"
+        )
+        export_venue_types = [export_venue_type_value_map[d] for d in export_selected_types]
 
-    with col3:
-        min_score = st.slider("Min Score", 0, 100, 0, key="export_score")
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        premium_only = st.checkbox("Premium Only", key="export_premium")
+        min_score = st.slider("Min Score", 0, 100, 0, key="export_score")
 
     with col2:
+        premium_only = st.checkbox("Premium Only", key="export_premium")
+
+    with col3:
         limit = st.selectbox("Max Rows", [100, 500, 1000, 5000, "All"], key="export_limit")
 
     # Get data
@@ -707,7 +847,7 @@ elif page == "Export Data":
 
     df = get_venues_filtered(
         city=city,
-        venue_type=venue_type,
+        venue_types=export_venue_types if export_venue_types else None,
         min_score=min_score,
         premium_only=premium_only,
         limit=export_limit,
@@ -760,7 +900,7 @@ elif page == "Export Data":
         with col1:
             csv = export_df.to_csv(index=False)
             st.download_button(
-                label="📥 Download CSV",
+                label="Download CSV",
                 data=csv,
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
@@ -773,7 +913,7 @@ elif page == "Export Data":
             export_df.to_excel(buffer, index=False, sheet_name="Venues")
 
             st.download_button(
-                label="📥 Download Excel",
+                label="Download Excel",
                 data=buffer.getvalue(),
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -805,9 +945,12 @@ elif page == "Validation Export":
     with col2:
         val_type = st.selectbox(
             "Venue Type",
-            ["cocktail_bar", "wine_bar", "bar", "pub", "restaurant", "All"],
-            key="val_type"
+            ["All", "Cocktail Bar", "Wine Bar", "Bar", "Pub", "Restaurant"],
+            key="val_type",
+            format_func=lambda x: x
         )
+        # Convert display name to raw value
+        val_type_raw = val_type.lower().replace(" ", "_") if val_type != "All" else None
 
     with col3:
         val_count = st.selectbox("Top N venues", [10, 20, 50, 100], index=1)
@@ -815,7 +958,7 @@ elif page == "Validation Export":
     # Get validation data
     val_df = get_venues_filtered(
         city=val_city if val_city != "All" else None,
-        venue_type=val_type if val_type != "All" else None,
+        venue_types=[val_type_raw] if val_type_raw else None,
         min_score=0,
         premium_only=False,
         limit=val_count,
@@ -867,7 +1010,7 @@ elif page == "Validation Export":
         val_export.to_excel(buffer, index=False, sheet_name="Validation")
 
         st.download_button(
-            label="📥 Download Validation Template",
+            label="Download Validation Template",
             data=buffer.getvalue(),
             file_name=f"validation_{val_city}_{val_type}_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
