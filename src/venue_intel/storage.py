@@ -562,25 +562,27 @@ def get_city_summary(city: str) -> dict:
 # =============================================================================
 
 # Pre-defined brand profiles with M sub-component weights
+# Note: keyword scoring removed - we don't store editorial summary (ToS compliance)
+# If client needs keyword-based matching, requires API re-fetch (~$20/1k venues)
 BRAND_PROFILES = {
     "premium_spirits": {
         "description": "Premium cocktail bars and upscale venues",
-        "weights": {"type": 0.35, "price": 0.30, "attribute": 0.20, "keyword": 0.15},
+        "weights": {"type": 0.45, "price": 0.35, "attribute": 0.20},
         "type_boost": {"is_cocktail_focused": 0.15, "is_casual_drinking": -0.10},
     },
     "craft_beer": {
         "description": "Craft beer focused venues and pubs",
-        "weights": {"type": 0.25, "price": 0.15, "attribute": 0.40, "keyword": 0.20},
+        "weights": {"type": 0.30, "price": 0.15, "attribute": 0.55},
         "type_boost": {"is_casual_drinking": 0.20, "is_cocktail_focused": -0.05},
     },
     "fine_wine": {
         "description": "Wine bars and fine dining",
-        "weights": {"type": 0.30, "price": 0.35, "attribute": 0.20, "keyword": 0.15},
+        "weights": {"type": 0.35, "price": 0.40, "attribute": 0.25},
         "type_boost": {"is_dining_focused": 0.15, "is_nightlife_focused": -0.15},
     },
     "budget_drinks": {
         "description": "High-volume budget-friendly venues",
-        "weights": {"type": 0.20, "price": 0.10, "attribute": 0.30, "keyword": 0.40},
+        "weights": {"type": 0.25, "price": 0.15, "attribute": 0.60},
         "type_boost": {"is_casual_drinking": 0.20, "is_nightlife_focused": 0.10},
         "invert_price": True,  # Lower price = higher score
     },
@@ -591,7 +593,6 @@ def calculate_profile_m_score(
     m_type: float,
     m_price: float,
     m_attribute: float,
-    m_keyword: float,
     is_cocktail_focused: bool,
     is_dining_focused: bool,
     is_nightlife_focused: bool,
@@ -603,8 +604,15 @@ def calculate_profile_m_score(
     Uses stored M sub-components and type classifications to compute
     a profile-specific M score without needing raw Google data.
 
+    Components used:
+    - Type score: How well venue type matches profile (cocktail_bar vs pub)
+    - Price score: Price tier alignment (premium vs budget)
+    - Attribute score: Beverage signals (serves_cocktails, serves_beer, etc.)
+
+    Note: Keyword scoring not used - would require storing editorial summary.
+
     Args:
-        m_type, m_price, m_attribute, m_keyword: Stored M sub-components
+        m_type, m_price, m_attribute: Stored M sub-components
         is_*: Type classification booleans
         profile: Brand profile name
 
@@ -622,12 +630,11 @@ def calculate_profile_m_score(
     if config.get("invert_price"):
         price_score = 1.0 - m_price
 
-    # Base weighted score
+    # Base weighted score (3 components)
     m_score = (
         weights["type"] * m_type +
         weights["price"] * price_score +
-        weights["attribute"] * m_attribute +
-        weights["keyword"] * m_keyword
+        weights["attribute"] * m_attribute
     )
 
     # Apply type boosts
@@ -681,7 +688,6 @@ def get_venues_by_profile(
             m_type=row["m_type_score"] or 0.5,
             m_price=row["m_price_score"] or 0.3,
             m_attribute=row["m_attribute_score"] or 0.3,
-            m_keyword=row["m_keyword_score"] or 0.5,
             is_cocktail_focused=bool(row["is_cocktail_focused"]),
             is_dining_focused=bool(row["is_dining_focused"]),
             is_nightlife_focused=bool(row["is_nightlife_focused"]),
