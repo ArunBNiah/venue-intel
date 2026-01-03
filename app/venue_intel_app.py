@@ -20,6 +20,9 @@ from venue_intel.storage import (
     get_all_cities,
     get_venue_count,
     get_city_summary,
+    get_venues_by_profile,
+    get_available_profiles,
+    BRAND_PROFILES,
 )
 from venue_intel.models import VolumeTier, QualityTier, PriceTier
 
@@ -563,8 +566,12 @@ elif page == "Explore Venues":
     venue_type_display_list = [opt['display'] for opt in venue_type_options]
     venue_type_value_map = {opt['display']: opt['value'] for opt in venue_type_options}
 
+    # Brand profile options
+    profile_options = list(get_available_profiles().keys())
+    profile_labels = {k: v for k, v in get_available_profiles().items()}
+
     # Primary filters
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         city = st.selectbox(
@@ -575,15 +582,26 @@ elif page == "Explore Venues":
         )
 
     with col2:
+        brand_profile = st.selectbox(
+            "Brand Profile",
+            options=profile_options,
+            index=0,
+            format_func=lambda x: x.replace("_", " ").title(),
+            help="Different profiles re-rank venues for your brand"
+        )
+
+    with col3:
         selected_types_display = st.multiselect(
             "Venue Types",
             options=venue_type_display_list,
             default=[],
-            placeholder="All venue types - click to filter",
-            help="Select one or more venue types (sorted by frequency)"
+            placeholder="All types",
+            help="Filter by venue type"
         )
-        # Convert display names back to raw values
         selected_venue_types = [venue_type_value_map[d] for d in selected_types_display]
+
+    # Show profile description
+    st.caption(f"**{brand_profile.replace('_', ' ').title()}:** {profile_labels[brand_profile]}")
 
     col1, col2, col3 = st.columns(3)
 
@@ -637,46 +655,79 @@ elif page == "Explore Venues":
         with col3:
             limit = st.selectbox("Max Results", [50, 100, 250, 500, 1000], index=1)
 
-    # Get filtered data
-    df = get_venues_filtered(
-        city=city,
-        venue_types=selected_venue_types if selected_venue_types else None,
-        min_score=min_score,
-        premium_only=premium_only,
-        volume_tier=volume_tier if volume_tier != "All" else None,
-        quality_tier=quality_tier if quality_tier != "All" else None,
-        limit=limit,
-        serves_cocktails=filter_serves_cocktails if filter_serves_cocktails else None,
-        serves_spirits=filter_serves_spirits if filter_serves_spirits else None,
-        has_great_cocktails=filter_great_cocktails if filter_great_cocktails else None,
-        is_upscale=filter_upscale if filter_upscale else None,
-        is_late_night=filter_late_night if filter_late_night else None,
-        on_any_authority_list=filter_authority_bars if filter_authority_bars else None,
-    )
+    # Get filtered data - use profile-based scoring
+    if brand_profile != "premium_spirits":
+        # Use profile-based recalculation
+        profile_data = get_venues_by_profile(
+            city=city if city != "All" else "london",  # Default to london if All
+            profile=brand_profile,
+            limit=2000,  # Get more, filter after
+        )
+        df = pd.DataFrame(profile_data)
 
-    st.caption(f"Showing {len(df)} venues")
+        # Apply filters manually
+        if selected_venue_types:
+            df = df[df["venue_type"].isin(selected_venue_types)]
+        if min_score > 0:
+            df = df[df["distribution_fit_score"] >= min_score]
+        if premium_only:
+            df = df[df.get("is_premium_indicator", False) == True]
+        if volume_tier != "All":
+            df = df[df["volume_tier"] == volume_tier]
+        if quality_tier != "All":
+            df = df[df["quality_tier"] == quality_tier]
+
+        df = df.head(limit)
+    else:
+        # Use standard filtering for premium_spirits (default)
+        df = get_venues_filtered(
+            city=city,
+            venue_types=selected_venue_types if selected_venue_types else None,
+            min_score=min_score,
+            premium_only=premium_only,
+            volume_tier=volume_tier if volume_tier != "All" else None,
+            quality_tier=quality_tier if quality_tier != "All" else None,
+            limit=limit,
+            serves_cocktails=filter_serves_cocktails if filter_serves_cocktails else None,
+            serves_spirits=filter_serves_spirits if filter_serves_spirits else None,
+            has_great_cocktails=filter_great_cocktails if filter_great_cocktails else None,
+            is_upscale=filter_upscale if filter_upscale else None,
+            is_late_night=filter_late_night if filter_late_night else None,
+            on_any_authority_list=filter_authority_bars if filter_authority_bars else None,
+        )
+
+    # Show profile indicator if not default
+    if brand_profile != "premium_spirits":
+        st.caption(f"Showing {len(df)} venues | Ranked for **{brand_profile.replace('_', ' ').title()}** profile")
+    else:
+        st.caption(f"Showing {len(df)} venues")
 
     if len(df) > 0:
-        # Format for display - include freshness
-        display_df = df[[
-            "name", "city", "venue_type", "distribution_fit_score",
-            "volume_tier", "quality_tier", "confidence_tier",
-            "is_premium_indicator", "last_scored_at"
-        ]].copy()
+        # Format for display - handle both standard and profile-based data
+        base_cols = ["name", "city", "venue_type", "distribution_fit_score",
+                     "volume_tier", "quality_tier", "confidence_tier"]
+        base_names = ["Name", "City", "Type", "Score", "Volume", "Quality", "Confidence"]
 
-        display_df.columns = [
-            "Name", "City", "Type", "Score",
-            "Volume", "Quality", "Confidence",
-            "Premium", "Last Scored"
-        ]
+        # Add optional columns if present
+        if "is_premium_indicator" in df.columns:
+            base_cols.append("is_premium_indicator")
+            base_names.append("Premium")
+        if "last_scored_at" in df.columns:
+            base_cols.append("last_scored_at")
+            base_names.append("Last Scored")
+
+        display_df = df[[c for c in base_cols if c in df.columns]].copy()
+        display_df.columns = base_names[:len(display_df.columns)]
 
         display_df["City"] = display_df["City"].str.title()
         display_df["Type"] = display_df["Type"].str.replace("_", " ").str.title()
         display_df["Volume"] = display_df["Volume"].str.replace("_", " ").str.title()
         display_df["Quality"] = display_df["Quality"].str.replace("_", " ").str.title()
         display_df["Confidence"] = display_df["Confidence"].str.title()
-        display_df["Premium"] = display_df["Premium"].map({1: "Yes", 0: ""})
-        display_df["Last Scored"] = pd.to_datetime(display_df["Last Scored"]).dt.strftime("%Y-%m-%d")
+        if "Premium" in display_df.columns:
+            display_df["Premium"] = display_df["Premium"].map({1: "Yes", 0: "", True: "Yes", False: ""})
+        if "Last Scored" in display_df.columns:
+            display_df["Last Scored"] = pd.to_datetime(display_df["Last Scored"]).dt.strftime("%Y-%m-%d")
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
