@@ -345,9 +345,11 @@ UNKNOWN: no data
 - [ ] Momentum as context layer, not ranking input (initially)
 
 **Brand Category Profiles**
-- [ ] Different M-score weights for whisky vs wine vs beer vs NA
-- [ ] User-selectable brand lens
-- [ ] Category-specific keyword matching
+- [x] M sub-component storage (type, price, attribute, keyword scores)
+- [x] Type classifications (is_cocktail_focused, is_dining_focused, etc.)
+- [x] Profile-based M recalculation (premium_spirits, craft_beer, fine_wine, budget_drinks)
+- [ ] User-selectable brand lens in UI
+- [ ] Custom profile creation
 
 **AI Comparison Features**
 - [ ] Multi-venue comparison tables
@@ -573,6 +575,43 @@ Handled locale variations:
 4. Export includes all authority columns
 
 ### Cost: $0 (web scraping for authority lists)
+
+---
+
+## Session Log (2025-01-03) - Brand Profile Flexibility
+
+### Problem Solved
+M score was hardcoded for premium spirits. Recalculating for different brand profiles (e.g., craft beer, budget drinks) would require re-fetching Google data, violating ToS scalability.
+
+### Solution Implemented
+Store M sub-components and type classifications derived from existing data:
+
+**New Columns Added:**
+- Type classifications: `is_cocktail_focused`, `is_dining_focused`, `is_nightlife_focused`, `is_casual_drinking`
+- M sub-components: `m_type_score`, `m_price_score`, `m_attribute_score`, `m_keyword_score`
+
+**Pre-defined Brand Profiles:**
+| Profile | Description | Effect |
+|---------|-------------|--------|
+| premium_spirits | Cocktail bars, upscale venues | Cocktail bars rank highest |
+| craft_beer | Pubs, beer-focused venues | Pubs dominate rankings |
+| fine_wine | Wine bars, fine dining | Dining venues boosted |
+| budget_drinks | High-volume, budget-friendly | Price score inverted |
+
+**Example - London Top 3:**
+- Premium Spirits: Simmons Bar, Cahoots Underground, F1 Arcade
+- Craft Beer: Old Shades, The Marquis Cornwallis, The Churchill Arms
+
+### ToS Compliance
+All new columns are our derived assessments, not raw Google data:
+- Type classifications derived from stored `venue_type`
+- M sub-components approximated from stored tiers and signals
+- `m_keyword_score` set to neutral (0.5) as we don't store editorial summary
+
+### Limitation
+`m_keyword_score` cannot vary by profile (no editorial summary stored). To fully support keyword-based differentiation, would need to store editorial summary or re-fetch.
+
+### Cost: $0 (derived from existing data)
 
 ---
 

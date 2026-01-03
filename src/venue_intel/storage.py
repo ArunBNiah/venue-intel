@@ -39,6 +39,7 @@ def get_connection() -> sqlite3.Connection:
     _ensure_tables(conn)
     _migrate_add_binary_signals(conn)
     _migrate_add_authority_sources(conn)
+    _migrate_add_brand_flexibility(conn)
     return conn
 
 
@@ -89,6 +90,137 @@ def _migrate_add_authority_sources(conn: sqlite3.Connection) -> None:
     for col_name, col_type in new_columns:
         if col_name not in existing_columns:
             conn.execute(f"ALTER TABLE venues ADD COLUMN {col_name} {col_type}")
+
+    conn.commit()
+
+
+def _migrate_add_brand_flexibility(conn: sqlite3.Connection) -> None:
+    """Add columns for multi-brand profile support.
+
+    Enables M score recalculation for different brand profiles without
+    re-fetching Google data. Stores:
+    1. Type classifications (our derived booleans)
+    2. M sub-component scores (for reweighting)
+
+    These are ToS-compliant as they're our derived assessments.
+    """
+    cursor = conn.execute("PRAGMA table_info(venues)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    new_columns = [
+        # Type classifications (derived from venue_type)
+        ("is_cocktail_focused", "INTEGER"),
+        ("is_dining_focused", "INTEGER"),
+        ("is_nightlife_focused", "INTEGER"),
+        ("is_casual_drinking", "INTEGER"),
+
+        # M sub-component scores (for reweighting)
+        ("m_type_score", "REAL"),
+        ("m_price_score", "REAL"),
+        ("m_attribute_score", "REAL"),
+        ("m_keyword_score", "REAL"),
+    ]
+
+    added_new = False
+    for col_name, col_type in new_columns:
+        if col_name not in existing_columns:
+            conn.execute(f"ALTER TABLE venues ADD COLUMN {col_name} {col_type}")
+            added_new = True
+
+    conn.commit()
+
+    # If we added new columns, populate them from existing data
+    if added_new:
+        _populate_brand_flexibility_columns(conn)
+
+
+def _populate_brand_flexibility_columns(conn: sqlite3.Connection) -> None:
+    """Populate brand flexibility columns from existing data."""
+
+    # Type classification mappings
+    cocktail_types = ('cocktail_bar', 'wine_bar', 'bar', 'lounge')
+    dining_types = ('restaurant', 'fine_dining_restaurant', 'french_restaurant',
+                    'italian_restaurant', 'japanese_restaurant', 'steak_house',
+                    'seafood_restaurant', 'indian_restaurant', 'chinese_restaurant')
+    nightlife_types = ('night_club', 'karaoke', 'adult_entertainment_club')
+    casual_types = ('pub', 'sports_bar', 'beer_garden', 'beer_hall', 'izakaya')
+
+    # Update type classifications
+    for types, column in [
+        (cocktail_types, 'is_cocktail_focused'),
+        (dining_types, 'is_dining_focused'),
+        (nightlife_types, 'is_nightlife_focused'),
+        (casual_types, 'is_casual_drinking'),
+    ]:
+        placeholders = ','.join(['?' for _ in types])
+        conn.execute(f"""
+            UPDATE venues SET {column} = CASE
+                WHEN venue_type IN ({placeholders}) THEN 1
+                ELSE 0
+            END
+        """, types)
+
+    # Type score mapping (from scoring.py TYPE_SCORES)
+    type_scores = {
+        'cocktail_bar': 1.0, 'wine_bar': 1.0,
+        'bar': 0.7, 'lounge': 0.7,
+        'fine_dining_restaurant': 0.6,
+        'french_restaurant': 0.5, 'italian_restaurant': 0.5,
+        'japanese_restaurant': 0.5, 'steak_house': 0.5,
+        'restaurant': 0.4, 'boutique_hotel': 0.4,
+        'hotel': 0.3, 'resort_hotel': 0.3, 'british_restaurant': 0.3,
+        'pub': 0.2, 'izakaya': 0.2,
+        'cafe': 0.1,
+        'night_club': -0.2, 'sports_bar': -0.2,
+        'karaoke': -0.3, 'liquor_store': -0.5,
+        'fast_food_restaurant': -0.8,
+        'convenience_store': -1.0,
+    }
+
+    # Update m_type_score based on venue_type
+    for venue_type, score in type_scores.items():
+        # Normalise from (-1,1) to (0,1) for storage
+        normalised = (score + 1.0) / 2.0
+        conn.execute("""
+            UPDATE venues SET m_type_score = ?
+            WHERE venue_type = ? AND m_type_score IS NULL
+        """, (normalised, venue_type))
+
+    # Set default for unknown types
+    conn.execute("""
+        UPDATE venues SET m_type_score = 0.5
+        WHERE m_type_score IS NULL
+    """)
+
+    # Price score from price_tier
+    price_scores = {
+        'premium': 0.9,
+        'mid': 0.4,
+        'budget': 0.1,
+        'unknown': 0.3,
+    }
+    for tier, score in price_scores.items():
+        conn.execute("""
+            UPDATE venues SET m_price_score = ?
+            WHERE price_tier = ?
+        """, (score, tier))
+
+    # Attribute score from binary signals
+    # Formula: (0.4*cocktails + 0.2*wine + 0.1*spirits + 0.1*beer) / 0.8, capped at 1.0
+    conn.execute("""
+        UPDATE venues SET m_attribute_score =
+            MIN(1.0, (
+                COALESCE(serves_cocktails, 0) * 0.4 +
+                COALESCE(serves_wine, 0) * 0.2 +
+                COALESCE(serves_spirits, 0) * 0.1 +
+                COALESCE(serves_beer, 0) * 0.1
+            ) / 0.8)
+    """)
+
+    # Keyword score - set to neutral (0.5) since we don't have editorial summary
+    conn.execute("""
+        UPDATE venues SET m_keyword_score = 0.5
+    """)
 
     conn.commit()
 
@@ -423,6 +555,175 @@ def get_city_summary(city: str) -> dict:
         "max_score": round(stats["max_score"], 1) if stats["max_score"] else 0,
         "min_score": round(stats["min_score"], 1) if stats["min_score"] else 0,
     }
+
+
+# =============================================================================
+# Brand Profile Calculations
+# =============================================================================
+
+# Pre-defined brand profiles with M sub-component weights
+BRAND_PROFILES = {
+    "premium_spirits": {
+        "description": "Premium cocktail bars and upscale venues",
+        "weights": {"type": 0.35, "price": 0.30, "attribute": 0.20, "keyword": 0.15},
+        "type_boost": {"is_cocktail_focused": 0.15, "is_casual_drinking": -0.10},
+    },
+    "craft_beer": {
+        "description": "Craft beer focused venues and pubs",
+        "weights": {"type": 0.25, "price": 0.15, "attribute": 0.40, "keyword": 0.20},
+        "type_boost": {"is_casual_drinking": 0.20, "is_cocktail_focused": -0.05},
+    },
+    "fine_wine": {
+        "description": "Wine bars and fine dining",
+        "weights": {"type": 0.30, "price": 0.35, "attribute": 0.20, "keyword": 0.15},
+        "type_boost": {"is_dining_focused": 0.15, "is_nightlife_focused": -0.15},
+    },
+    "budget_drinks": {
+        "description": "High-volume budget-friendly venues",
+        "weights": {"type": 0.20, "price": 0.10, "attribute": 0.30, "keyword": 0.40},
+        "type_boost": {"is_casual_drinking": 0.20, "is_nightlife_focused": 0.10},
+        "invert_price": True,  # Lower price = higher score
+    },
+}
+
+
+def calculate_profile_m_score(
+    m_type: float,
+    m_price: float,
+    m_attribute: float,
+    m_keyword: float,
+    is_cocktail_focused: bool,
+    is_dining_focused: bool,
+    is_nightlife_focused: bool,
+    is_casual_drinking: bool,
+    profile: str = "premium_spirits",
+) -> float:
+    """Calculate M score for a specific brand profile.
+
+    Uses stored M sub-components and type classifications to compute
+    a profile-specific M score without needing raw Google data.
+
+    Args:
+        m_type, m_price, m_attribute, m_keyword: Stored M sub-components
+        is_*: Type classification booleans
+        profile: Brand profile name
+
+    Returns:
+        M score (0-1) for the specified profile
+    """
+    if profile not in BRAND_PROFILES:
+        profile = "premium_spirits"
+
+    config = BRAND_PROFILES[profile]
+    weights = config["weights"]
+
+    # Invert price score if profile prefers budget
+    price_score = m_price
+    if config.get("invert_price"):
+        price_score = 1.0 - m_price
+
+    # Base weighted score
+    m_score = (
+        weights["type"] * m_type +
+        weights["price"] * price_score +
+        weights["attribute"] * m_attribute +
+        weights["keyword"] * m_keyword
+    )
+
+    # Apply type boosts
+    boosts = config.get("type_boost", {})
+    if is_cocktail_focused and "is_cocktail_focused" in boosts:
+        m_score += boosts["is_cocktail_focused"]
+    if is_dining_focused and "is_dining_focused" in boosts:
+        m_score += boosts["is_dining_focused"]
+    if is_nightlife_focused and "is_nightlife_focused" in boosts:
+        m_score += boosts["is_nightlife_focused"]
+    if is_casual_drinking and "is_casual_drinking" in boosts:
+        m_score += boosts["is_casual_drinking"]
+
+    # Clamp to 0-1
+    return max(0.0, min(1.0, m_score))
+
+
+def get_venues_by_profile(
+    city: str,
+    profile: str = "premium_spirits",
+    limit: int = 100,
+) -> list[dict]:
+    """Get venues ranked by a specific brand profile.
+
+    Recalculates M and distribution_fit_score using stored sub-components.
+
+    Args:
+        city: City name
+        profile: Brand profile name
+        limit: Maximum results
+
+    Returns:
+        List of venue dicts with recalculated scores
+    """
+    conn = get_connection()
+
+    rows = conn.execute("""
+        SELECT *,
+               m_type_score, m_price_score, m_attribute_score, m_keyword_score,
+               is_cocktail_focused, is_dining_focused, is_nightlife_focused, is_casual_drinking
+        FROM venues
+        WHERE city = ?
+    """, (city.lower(),)).fetchall()
+
+    conn.close()
+
+    # Recalculate scores for each venue
+    results = []
+    for row in rows:
+        new_m = calculate_profile_m_score(
+            m_type=row["m_type_score"] or 0.5,
+            m_price=row["m_price_score"] or 0.3,
+            m_attribute=row["m_attribute_score"] or 0.3,
+            m_keyword=row["m_keyword_score"] or 0.5,
+            is_cocktail_focused=bool(row["is_cocktail_focused"]),
+            is_dining_focused=bool(row["is_dining_focused"]),
+            is_nightlife_focused=bool(row["is_nightlife_focused"]),
+            is_casual_drinking=bool(row["is_casual_drinking"]),
+            profile=profile,
+        )
+
+        # Recalculate distribution fit score with new M
+        new_score = (0.25 * row["v_score"] + 0.25 * row["r_score"] + 0.50 * new_m) * 100
+
+        results.append({
+            "place_id": row["place_id"],
+            "name": row["name"],
+            "city": row["city"],
+            "venue_type": row["venue_type"],
+            "address": row["address"],
+            "latitude": row["latitude"],
+            "longitude": row["longitude"],
+            "v_score": row["v_score"],
+            "r_score": row["r_score"],
+            "m_score": round(new_m, 3),
+            "m_score_original": row["m_score"],
+            "distribution_fit_score": round(new_score, 1),
+            "original_score": row["distribution_fit_score"],
+            "volume_tier": row["volume_tier"],
+            "quality_tier": row["quality_tier"],
+            "price_tier": row["price_tier"],
+            "confidence_tier": row["confidence_tier"],
+            "is_cocktail_focused": bool(row["is_cocktail_focused"]),
+            "is_casual_drinking": bool(row["is_casual_drinking"]),
+            "profile": profile,
+        })
+
+    # Sort by new score
+    results.sort(key=lambda x: x["distribution_fit_score"], reverse=True)
+
+    return results[:limit]
+
+
+def get_available_profiles() -> dict:
+    """Get available brand profiles with descriptions."""
+    return {k: v["description"] for k, v in BRAND_PROFILES.items()}
 
 
 # =============================================================================
