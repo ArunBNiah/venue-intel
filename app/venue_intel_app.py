@@ -767,15 +767,15 @@ elif page == "Explore Venues":
                 st.caption(f"Volume tier: {venue_row['volume_tier'].replace('_', ' ').title()}")
 
                 # R Score
-                st.markdown(f"**R (Quality):** {venue_row['r_score']:.2f}")
+                st.markdown(f"**R (Rating):** {venue_row['r_score']:.2f}")
                 st.progress(venue_row['r_score'])
                 st.caption(f"Quality tier: {venue_row['quality_tier'].replace('_', ' ').title()}")
 
                 # M Score with confidence note
-                st.markdown(f"**M (Relevance):** {venue_row['m_score']:.2f}")
+                st.markdown(f"**M (Match):** {venue_row['m_score']:.2f}")
                 st.progress(venue_row['m_score'])
                 m_note = get_m_confidence_note(venue_row['m_score'], venue_row['venue_type'])
-                st.caption(f"Evidence: {m_note}")
+                st.caption(f"Brand profile: Premium Spirits | {m_note}")
 
             with col2:
                 st.markdown("#### Summary")
@@ -892,7 +892,7 @@ elif page == "Export Data":
         base_names = [
             "Name", "City", "Country", "Address",
             "Venue Type", "Distribution Fit Score",
-            "V Score", "R Score", "M Score",
+            "V (Volume)", "R (Rating)", "M (Match)",
             "Volume Tier", "Quality Tier", "Price Tier",
             "Confidence", "Premium",
             "Serves Cocktails", "Serves Spirits", "Serves Wine", "Serves Beer",
@@ -1014,7 +1014,7 @@ elif page == "Validation Export":
 
         val_export.columns = [
             "Name", "City", "Type",
-            "Score", "V", "R", "M",
+            "Score", "V (Volume)", "R (Rating)", "M (Match)",
             "Volume Tier", "Quality Tier", "Confidence",
             "Rationale", "Address",
             "Human Agree (Y/N)", "Notes", "Suggested Rank"
