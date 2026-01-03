@@ -182,9 +182,16 @@ UNKNOWN: no data
 | Cocktail Bar | 1,200+ |
 
 ### Authority Data
-- **27 World's 50 Best Bars** flagged with rank and authority_tier
-- Authority tiers: `elite` (1-50), `notable` (51-100)
-- Stored in: `on_worlds_50_best`, `worlds_50_best_rank`, `authority_tier`
+**43 bars** flagged from respected industry lists:
+
+| List | Bars Matched | Coverage |
+|------|-------------|----------|
+| World's 50 Best Bars | 27 | 1-100 (global) |
+| Asia's 50 Best Bars | 8 | 1-100 (Tokyo) |
+| North America's 50 Best Bars | 15 | 1-50 (NYC, Chicago) |
+
+- Authority tiers: `elite` (top 50 on any list), `notable` (51-100)
+- Stored in: `on_worlds_50_best`, `on_asias_50_best`, `on_north_americas_50_best` (plus rank columns)
 
 ### Data Source
 - **Historical import** from research data (CSV/XLSX files)
@@ -309,7 +316,8 @@ UNKNOWN: no data
 
 **Authority Signal Expansion**
 - [x] World's 50 Best Bars (1-100)
-- [ ] Asia's 50 Best Bars
+- [x] Asia's 50 Best Bars (1-100) - 8 Tokyo bars matched
+- [x] North America's 50 Best Bars (1-50) - 15 NYC/Chicago bars matched
 - [ ] Tales of the Cocktail Spirited Awards
 - [ ] Michelin Guide (for restaurant/bar overlap)
 - [ ] Local "Best of" lists per city
@@ -544,24 +552,48 @@ Handled locale variations:
 
 ---
 
+## Session Log (2025-01-03) - Authority Sources Expansion
+
+### Authority Sources Added
+1. Fetched Asia's 50 Best Bars 2024 (ranks 1-100)
+2. Fetched North America's 50 Best Bars 2024 (ranks 1-50)
+3. Added database columns for new authority sources
+4. Matched and flagged bars across all lists
+
+### Bars Matched
+- **Tokyo (Asia's 50 Best):** 8 bars (#9 Bar Benfiddich through #99 The SG Club)
+- **NYC (NA's 50 Best):** 11 bars (#2 Superbueno through #46 Dante)
+- **Chicago (NA's 50 Best):** 4 bars (#10 Kumiko, #25 Best Intentions, #38 Meadowlark, #39 Bisous)
+- Some bars appear on multiple lists (e.g., Bar Benfiddich: W50B #3, A50B #9)
+
+### UI Updates
+1. Filter renamed: "50 Best Bars Only" (covers all lists)
+2. Authority badges show all applicable rankings (W50B, A50B, NA50B)
+3. Overview page shows authority breakdown by source
+4. Export includes all authority columns
+
+### Cost: $0 (web scraping for authority lists)
+
+---
+
 ## Current Database State
 
 **75,861 venues across 11 cities, 5 countries:**
-| City | Country | Venues | W50B |
-|------|---------|--------|------|
-| Tokyo | Japan | 28,725 | 8 |
-| London | UK | 19,320 | 7 |
-| Berlin | Germany | 7,718 | 1 |
-| New York | USA | 5,505 | 7 |
-| Paris | France | 5,443 | 3 |
-| Chicago | USA | 2,143 | 1 |
+| City | Country | Venues | Authority Bars |
+|------|---------|--------|----------------|
+| Tokyo | Japan | 28,725 | 14 (W50B + A50B) |
+| London | UK | 19,320 | 7 (W50B) |
+| Berlin | Germany | 7,718 | 1 (W50B) |
+| New York | USA | 5,505 | 14 (W50B + NA50B) |
+| Paris | France | 5,443 | 3 (W50B) |
+| Chicago | USA | 2,143 | 4 (W50B + NA50B) |
 | Marseille | France | 1,860 | - |
 | Lyon | France | 1,755 | - |
 | Düsseldorf | Germany | 1,611 | - |
 | Toulouse | France | 956 | - |
 | Bordeaux | France | 825 | - |
 
-**Total World's 50 Best bars flagged:** 27
+**Total authority bars:** 43 (across 3 lists, some overlap)
 
 ---
 
@@ -570,7 +602,7 @@ Handled locale variations:
 Based on current state and roadmap, recommended focus:
 
 1. **Validate Scoring** - Export top 50 cocktail bars per major city, manual review with domain expert
-2. **Expand Authority Sources** - Add Asia's 50 Best Bars (would significantly enrich Tokyo data)
+2. **Tales of the Cocktail Spirited Awards** - Add winners from Best International Cocktail Bar, Best US Bar categories
 3. **OpenAI Integration** - Build explanation layer with cost controls
 4. **Enable API Refresh** - Wire up new city requests with cost confirmation
 

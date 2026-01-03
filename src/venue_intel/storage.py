@@ -38,6 +38,7 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     _ensure_tables(conn)
     _migrate_add_binary_signals(conn)
+    _migrate_add_authority_sources(conn)
     return conn
 
 
@@ -56,6 +57,33 @@ def _migrate_add_binary_signals(conn: sqlite3.Connection) -> None:
         ("has_great_wine", "INTEGER"),
         ("is_upscale", "INTEGER"),
         ("is_late_night", "INTEGER"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in existing_columns:
+            conn.execute(f"ALTER TABLE venues ADD COLUMN {col_name} {col_type}")
+
+    conn.commit()
+
+
+def _migrate_add_authority_sources(conn: sqlite3.Connection) -> None:
+    """Add authority source columns if they don't exist (migration).
+
+    Supports multiple authority lists:
+    - World's 50 Best Bars (already exists)
+    - Asia's 50 Best Bars
+    - North America's 50 Best Bars
+    """
+    cursor = conn.execute("PRAGMA table_info(venues)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    new_columns = [
+        # Asia's 50 Best Bars
+        ("on_asias_50_best", "INTEGER"),
+        ("asias_50_best_rank", "INTEGER"),
+        # North America's 50 Best Bars
+        ("on_north_americas_50_best", "INTEGER"),
+        ("north_americas_50_best_rank", "INTEGER"),
     ]
 
     for col_name, col_type in new_columns:

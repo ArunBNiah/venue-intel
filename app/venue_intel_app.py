@@ -174,6 +174,20 @@ def get_database_stats():
         conn
     )
 
+    # Authority sources
+    stats["authority_count"] = conn.execute(
+        "SELECT COUNT(*) FROM venues WHERE on_worlds_50_best = 1 OR on_asias_50_best = 1 OR on_north_americas_50_best = 1"
+    ).fetchone()[0]
+
+    stats["authority_breakdown"] = pd.read_sql_query(
+        """SELECT
+            SUM(CASE WHEN on_worlds_50_best = 1 THEN 1 ELSE 0 END) as "World's 50 Best",
+            SUM(CASE WHEN on_asias_50_best = 1 THEN 1 ELSE 0 END) as "Asia's 50 Best",
+            SUM(CASE WHEN on_north_americas_50_best = 1 THEN 1 ELSE 0 END) as "NA's 50 Best"
+        FROM venues""",
+        conn
+    )
+
     conn.close()
     return stats
 
@@ -194,7 +208,7 @@ def get_venues_filtered(
     is_upscale: bool | None = None,
     is_late_night: bool | None = None,
     # Authority filters
-    on_worlds_50_best: bool | None = None,
+    on_any_authority_list: bool | None = None,
 ):
     """Get filtered venues from database."""
     conn = get_connection()
@@ -243,9 +257,9 @@ def get_venues_filtered(
     if is_late_night:
         query += " AND is_late_night = 1"
 
-    # Authority filters
-    if on_worlds_50_best:
-        query += " AND on_worlds_50_best = 1"
+    # Authority filters - match any authority list
+    if on_any_authority_list:
+        query += " AND (on_worlds_50_best = 1 OR on_asias_50_best = 1 OR on_north_americas_50_best = 1)"
 
     query += " ORDER BY distribution_fit_score DESC LIMIT ?"
     params.append(limit)
@@ -492,7 +506,7 @@ if page == "Overview":
         st.metric("Countries", len(stats["by_country"]))
 
     with col4:
-        st.metric("Premium Venues", f"{stats['premium_count']:,}")
+        st.metric("50 Best Bars", f"{stats['authority_count']:,}")
 
     # Data quality callout
     st.divider()
@@ -507,10 +521,11 @@ if page == "Overview":
         st.caption("Confidence reflects data volume. Historical imports capped at Medium.")
 
     with col2:
-        st.subheader("Score Versions")
-        version_df = stats["score_versions"].copy()
-        st.dataframe(version_df, use_container_width=True, hide_index=True)
-        st.caption("All data scored with same algorithm version.")
+        st.subheader("Authority Sources")
+        auth_df = stats["authority_breakdown"].T.reset_index()
+        auth_df.columns = ["Source", "Count"]
+        st.dataframe(auth_df, use_container_width=True, hide_index=True)
+        st.caption("Bars featured on respected industry lists.")
 
     st.divider()
 
@@ -579,7 +594,7 @@ elif page == "Explore Venues":
         premium_only = st.checkbox("Premium Only")
 
     with col3:
-        filter_worlds_50_best = st.checkbox("World's 50 Best Only")
+        filter_authority_bars = st.checkbox("50 Best Bars Only")
 
     # Signal filters
     with st.expander("Beverage & Venue Signals"):
@@ -636,7 +651,7 @@ elif page == "Explore Venues":
         has_great_cocktails=filter_great_cocktails if filter_great_cocktails else None,
         is_upscale=filter_upscale if filter_upscale else None,
         is_late_night=filter_late_night if filter_late_night else None,
-        on_worlds_50_best=filter_worlds_50_best if filter_worlds_50_best else None,
+        on_any_authority_list=filter_authority_bars if filter_authority_bars else None,
     )
 
     st.caption(f"Showing {len(df)} venues")
@@ -779,13 +794,20 @@ elif page == "Explore Venues":
                 if venue_row['is_premium_indicator']:
                     st.markdown('<span class="badge badge-premium">PREMIUM</span>', unsafe_allow_html=True)
 
-                # World's 50 Best badge
+                # Authority badges (50 Best lists)
+                authority_badges = []
                 if venue_row.get('on_worlds_50_best') == 1:
                     rank = venue_row.get('worlds_50_best_rank')
-                    if rank:
-                        st.markdown(f'<span class="badge badge-authority">W50B #{rank}</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="badge badge-authority">W50B Listed</span>', unsafe_allow_html=True)
+                    authority_badges.append(f'W50B #{rank}' if rank else 'W50B')
+                if venue_row.get('on_asias_50_best') == 1:
+                    rank = venue_row.get('asias_50_best_rank')
+                    authority_badges.append(f'A50B #{rank}' if rank else 'A50B')
+                if venue_row.get('on_north_americas_50_best') == 1:
+                    rank = venue_row.get('north_americas_50_best_rank')
+                    authority_badges.append(f'NA50B #{rank}' if rank else 'NA50B')
+
+                for badge in authority_badges:
+                    st.markdown(f'<span class="badge badge-authority">{badge}</span>', unsafe_allow_html=True)
 
                 # Freshness
                 st.markdown("#### Data Freshness")
@@ -880,8 +902,18 @@ elif page == "Export Data":
 
         # Add authority columns if available
         if "on_worlds_50_best" in df.columns:
-            base_columns.extend(["on_worlds_50_best", "worlds_50_best_rank", "authority_tier"])
-            base_names.extend(["World's 50 Best", "W50B Rank", "Authority Tier"])
+            base_columns.extend([
+                "on_worlds_50_best", "worlds_50_best_rank",
+                "on_asias_50_best", "asias_50_best_rank",
+                "on_north_americas_50_best", "north_americas_50_best_rank",
+                "authority_tier"
+            ])
+            base_names.extend([
+                "World's 50 Best", "W50B Rank",
+                "Asia's 50 Best", "A50B Rank",
+                "NA's 50 Best", "NA50B Rank",
+                "Authority Tier"
+            ])
 
         base_columns.extend(["rationale", "place_id", "latitude", "longitude", "last_scored_at", "score_version"])
         base_names.extend(["Rationale", "Place ID", "Latitude", "Longitude", "Last Scored", "Score Version"])
