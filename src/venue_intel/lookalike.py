@@ -12,9 +12,11 @@ Core principle: Transfer PATTERNS, not numbers.
 - Compare brand fit patterns (M substructure)
 """
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Literal
 
@@ -150,6 +152,143 @@ def get_connection() -> sqlite3.Connection:
 
 
 # =============================================================================
+# Fuzzy Matching
+# =============================================================================
+
+# Common words to ignore in matching (low signal)
+STOP_WORDS = {
+    "the", "a", "an", "and", "&", "at", "of", "in", "on",
+    "bar", "bars", "restaurant", "lounge", "club", "pub",
+    "nyc", "london", "berlin", "tokyo", "paris", "chicago",
+}
+
+
+def tokenize(name: str) -> set[str]:
+    """Convert venue name to a set of meaningful tokens.
+
+    - Lowercases
+    - Removes punctuation
+    - Splits into words
+    - Removes stop words
+
+    Example: "The Connaught Bar" → {"connaught"}
+    """
+    # Lowercase and remove punctuation (keep alphanumeric and spaces)
+    cleaned = re.sub(r"[^\w\s]", " ", name.lower())
+    # Split into words
+    words = cleaned.split()
+    # Remove stop words and very short words
+    tokens = {w for w in words if w not in STOP_WORDS and len(w) > 1}
+    return tokens
+
+
+def levenshtein_ratio(s1: str, s2: str) -> float:
+    """Calculate similarity ratio between two strings (0-1).
+
+    Uses SequenceMatcher which is similar to Levenshtein but optimized.
+    1.0 = identical, 0.0 = completely different
+    """
+    return SequenceMatcher(None, s1.lower(), s2.lower()).ratio()
+
+
+def token_match_score(input_tokens: set[str], venue_tokens: set[str], typo_threshold: float = 0.8) -> float:
+    """Calculate match score between two token sets.
+
+    Handles:
+    - Exact token matches
+    - Fuzzy token matches (typos) using Levenshtein
+
+    Returns:
+        Score from 0.0 to 1.0 (proportion of input tokens matched)
+    """
+    if not input_tokens:
+        return 0.0
+
+    matched = 0
+
+    for input_token in input_tokens:
+        # Check for exact match
+        if input_token in venue_tokens:
+            matched += 1
+            continue
+
+        # Check for fuzzy match on each venue token
+        for venue_token in venue_tokens:
+            if levenshtein_ratio(input_token, venue_token) >= typo_threshold:
+                matched += 1
+                break
+
+    return matched / len(input_tokens)
+
+
+def fuzzy_match_venue(
+    input_name: str,
+    candidates: list[sqlite3.Row],
+    threshold: float = 0.6,
+) -> tuple[sqlite3.Row | None, float, str]:
+    """Find best fuzzy match for input name among candidates.
+
+    Uses hybrid approach:
+    1. Token-based matching for word overlap
+    2. Levenshtein on tokens for typo tolerance
+    3. Full string Levenshtein as tiebreaker
+
+    Args:
+        input_name: The venue name to match
+        candidates: List of database rows to search
+        threshold: Minimum score to consider a match (0-1)
+
+    Returns:
+        Tuple of (best_match_row, score, match_method)
+        Returns (None, 0, "") if no match above threshold
+    """
+    input_tokens = tokenize(input_name)
+
+    best_match = None
+    best_score = 0.0
+    best_method = ""
+    best_token_score = 0.0
+    best_string_score = 0.0
+
+    for row in candidates:
+        venue_name = row["name"]
+        venue_tokens = tokenize(venue_name)
+
+        # Calculate token match score (handles word overlap + typos)
+        token_score = token_match_score(input_tokens, venue_tokens)
+
+        # Calculate full string similarity as secondary signal
+        string_score = levenshtein_ratio(input_name, venue_name)
+
+        # Combined score: weight tokens heavily, string as tiebreaker
+        combined_score = (token_score * 0.7) + (string_score * 0.3)
+
+        if combined_score > best_score:
+            best_score = combined_score
+            best_match = row
+            best_token_score = token_score
+            best_string_score = string_score
+
+            # Determine method description
+            if token_score >= 0.9:
+                best_method = "token_exact"
+            elif token_score >= 0.6:
+                best_method = "token_fuzzy"
+            else:
+                best_method = "string_fuzzy"
+
+    # Apply threshold with additional validation
+    if best_score >= threshold:
+        # Prevent false positives: require either strong token match OR strong string match
+        # This catches cases like "Totally Fake Bar" matching "Totally Gyro" on single word
+        if best_token_score < 0.6 and best_string_score < 0.7:
+            return None, 0.0, ""
+        return best_match, best_score, best_method
+    else:
+        return None, 0.0, ""
+
+
+# =============================================================================
 # Account Resolution
 # =============================================================================
 
@@ -158,6 +297,11 @@ def resolve_accounts(
     accounts: list[AccountInput],
 ) -> tuple[list[ResolvedAccount], list[dict]]:
     """Resolve client accounts to VIDPS venue records.
+
+    Uses a cascade of matching strategies:
+    1. Exact place_id match (if provided)
+    2. Exact name match (case-insensitive)
+    3. Hybrid fuzzy match (token overlap + Levenshtein for typos)
 
     Args:
         accounts: List of client account inputs
@@ -170,7 +314,7 @@ def resolve_accounts(
     unmatched = []
 
     for account in accounts:
-        # Try place_id first (exact match)
+        # TIER 1: Try place_id first (exact match)
         if account.place_id:
             row = conn.execute(
                 "SELECT * FROM venues WHERE place_id = ?",
@@ -181,7 +325,7 @@ def resolve_accounts(
                 resolved.append(_row_to_resolved(account, row, "exact", "place_id"))
                 continue
 
-        # Try exact name match in city
+        # TIER 2: Try exact name match in city
         row = conn.execute(
             "SELECT * FROM venues WHERE LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
             (account.name, account.city)
@@ -191,20 +335,27 @@ def resolve_accounts(
             resolved.append(_row_to_resolved(account, row, "high", "name_exact"))
             continue
 
-        # Try fuzzy name match (contains)
-        rows = conn.execute(
-            """SELECT * FROM venues
-               WHERE LOWER(city) = LOWER(?)
-               AND (LOWER(name) LIKE ? OR LOWER(?) LIKE '%' || LOWER(name) || '%')
-               LIMIT 5""",
-            (account.city, f"%{account.name.lower()}%", account.name)
+        # TIER 3: Hybrid fuzzy match (token + Levenshtein)
+        # Get all venues in the city as candidates
+        candidates = conn.execute(
+            "SELECT * FROM venues WHERE LOWER(city) = LOWER(?)",
+            (account.city,)
         ).fetchall()
 
-        if rows:
-            # Take best match (shortest name that contains search, or first)
-            best = min(rows, key=lambda r: len(r["name"]))
-            resolved.append(_row_to_resolved(account, best, "medium", "name_fuzzy"))
-            continue
+        if candidates:
+            match, score, method = fuzzy_match_venue(account.name, candidates, threshold=0.5)
+
+            if match:
+                # Determine confidence based on score
+                if score >= 0.85:
+                    confidence = "high"
+                elif score >= 0.65:
+                    confidence = "medium"
+                else:
+                    confidence = "low"
+
+                resolved.append(_row_to_resolved(account, match, confidence, method))
+                continue
 
         # No match found
         unmatched.append({
