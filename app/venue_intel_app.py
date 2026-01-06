@@ -25,6 +25,7 @@ from venue_intel.storage import (
     BRAND_PROFILES,
 )
 from venue_intel.models import VolumeTier, QualityTier, PriceTier
+from venue_intel.lookalike import find_lookalikes, AccountInput
 
 
 # =============================================================================
@@ -464,7 +465,7 @@ st.sidebar.caption("Distribution Prioritisation System")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["Overview", "Explore Venues", "Export Data", "Validation Export", "Request New City"],
+    ["Overview", "Explore Venues", "Expansion Planner", "Export Data", "Validation Export", "Request New City"],
     index=0,
 )
 
@@ -1134,6 +1135,299 @@ elif page == "Validation Export":
         st.caption("Template includes columns for human feedback.")
     else:
         st.info("No venues match your criteria.")
+
+
+# =============================================================================
+# Expansion Planner Page
+# =============================================================================
+
+elif page == "Expansion Planner":
+    st.title("Expansion Planner")
+    st.markdown("**Find prospects in a new market similar to your best accounts**")
+
+    st.info("""
+    Upload your top-performing accounts from one market, and we'll find similar
+    venues in your target market - based on venue type, price tier, quality, and
+    brand relevance patterns.
+    """)
+
+    st.divider()
+
+    # --- Step 1: Market Selection ---
+    st.subheader("1. Select Markets")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        source_market = st.selectbox(
+            "Source Market (where your accounts are)",
+            [c for c in get_cities() if c != "All"],
+            index=0,
+            key="source_market"
+        )
+
+    with col2:
+        target_options = [c for c in get_cities() if c != "All" and c.lower() != source_market.lower()]
+        target_market = st.selectbox(
+            "Target Market (where to find prospects)",
+            target_options,
+            index=0,
+            key="target_market"
+        )
+
+    st.divider()
+
+    # --- Step 2: Account Input ---
+    st.subheader("2. Enter Your Top Accounts")
+
+    input_method = st.radio(
+        "How would you like to enter accounts?",
+        ["Manual Entry", "CSV Upload"],
+        horizontal=True
+    )
+
+    accounts_to_process = []
+
+    if input_method == "Manual Entry":
+        st.caption(f"Enter your top accounts in **{source_market}** (one per line)")
+
+        account_text = st.text_area(
+            "Account Names",
+            placeholder="The Connaught Bar\nSatan's Whiskers\nTayēr + Elementary\nSwift Soho\n...",
+            height=200,
+            help="Enter venue names exactly as they appear. We'll match them to our database."
+        )
+
+        if account_text:
+            lines = [line.strip() for line in account_text.split("\n") if line.strip()]
+            accounts_to_process = [
+                AccountInput(name=name, city=source_market.lower())
+                for name in lines
+            ]
+            st.caption(f"{len(accounts_to_process)} accounts entered")
+
+    else:  # CSV Upload
+        st.caption("Upload a CSV with columns: `name` (required), `place_id` (optional)")
+
+        uploaded_file = st.file_uploader(
+            "Choose CSV file",
+            type="csv",
+            help="CSV should have at least a 'name' column"
+        )
+
+        if uploaded_file:
+            try:
+                csv_df = pd.read_csv(uploaded_file)
+                if "name" not in csv_df.columns:
+                    st.error("CSV must have a 'name' column")
+                else:
+                    for _, row in csv_df.iterrows():
+                        accounts_to_process.append(AccountInput(
+                            name=row["name"],
+                            city=source_market.lower(),
+                            place_id=row.get("place_id"),
+                            address=row.get("address"),
+                        ))
+                    st.success(f"Loaded {len(accounts_to_process)} accounts from CSV")
+            except Exception as e:
+                st.error(f"Error reading CSV: {e}")
+
+    st.divider()
+
+    # --- Step 3: Run Analysis ---
+    st.subheader("3. Find Similar Venues")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        result_limit = st.selectbox("Max results", [25, 50, 100, 200], index=1)
+
+    with col2:
+        min_confidence = st.selectbox(
+            "Minimum confidence",
+            [None, "medium", "high"],
+            format_func=lambda x: "All" if x is None else x.title()
+        )
+
+    if st.button("Generate Target List", type="primary", disabled=len(accounts_to_process) < 5):
+        if len(accounts_to_process) < 5:
+            st.warning("Please enter at least 5 accounts to build a reliable profile")
+        else:
+            with st.spinner(f"Analyzing {len(accounts_to_process)} accounts and finding matches in {target_market}..."):
+                result = find_lookalikes(
+                    source_accounts=accounts_to_process,
+                    source_market=source_market.lower(),
+                    target_market=target_market.lower(),
+                    limit=result_limit,
+                    min_confidence=min_confidence,
+                )
+
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                # Store results in session state
+                st.session_state["lookalike_results"] = result
+
+    # --- Display Results ---
+    if "lookalike_results" in st.session_state:
+        result = st.session_state["lookalike_results"]
+
+        st.divider()
+
+        # Resolution Report
+        res = result["resolution_report"]
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Accounts Matched", f"{res['resolved']}/{res['total_input']}")
+        with col2:
+            st.metric("Resolution Rate", f"{res['resolution_rate']:.0%}")
+        with col3:
+            if res["unmatched_details"]:
+                with st.expander(f"View {len(res['unmatched_details'])} unmatched"):
+                    for u in res["unmatched_details"]:
+                        st.text(f"• {u['name']}")
+
+        st.divider()
+
+        # Success Profile
+        st.subheader(f"Your {source_market} Success Profile")
+
+        prof = result["success_profile"]
+
+        if prof["concentration_warning"]:
+            st.warning(f"⚠️ {prof['concentration_warning']} - results may be narrow")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Venue Type Mix**")
+            type_df = pd.DataFrame([
+                {"Type": k.replace("_", " ").title(), "Share": f"{v:.0%}"}
+                for k, v in sorted(prof["type_distribution"].items(), key=lambda x: -x[1])
+            ])
+            st.dataframe(type_df, hide_index=True, use_container_width=True)
+
+        with col2:
+            st.markdown("**Price Tier Mix**")
+            price_df = pd.DataFrame([
+                {"Tier": k.title(), "Share": f"{v:.0%}"}
+                for k, v in sorted(prof["price_tier_distribution"].items(), key=lambda x: -x[1])
+            ])
+            st.dataframe(price_df, hide_index=True, use_container_width=True)
+
+            if prof["authority_prevalence"] > 0:
+                st.markdown(f"**Authority Venues:** {prof['authority_prevalence']:.0%} of accounts")
+
+        st.divider()
+
+        # Results Table
+        st.subheader(f"Top {target_market} Prospects")
+        st.caption(f"Ranked by similarity to your {source_market} success profile")
+
+        results_data = result["results"]
+
+        if results_data:
+            # Build display dataframe
+            display_rows = []
+            for r in results_data:
+                display_rows.append({
+                    "Rank": r["rank"],
+                    "Venue": r["name"],
+                    "Type": r["venue_type"].replace("_", " ").title(),
+                    "Similarity": r["similarity_score"],
+                    "Confidence": r["confidence"].title(),
+                    "Why Similar": ", ".join(r["matched_on"][:3]) if r["matched_on"] else "-",
+                    "VIDPS Score": r["context"]["distribution_fit_score"],
+                })
+
+            results_df = pd.DataFrame(display_rows)
+            st.dataframe(results_df, hide_index=True, use_container_width=True)
+
+            # Expandable detail for selected venue
+            st.markdown("---")
+            st.markdown("**Venue Detail**")
+
+            venue_names = [r["name"] for r in results_data]
+            selected_name = st.selectbox("Select venue for details", venue_names)
+
+            if selected_name:
+                selected = next(r for r in results_data if r["name"] == selected_name)
+
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.markdown(f"### {selected['name']}")
+                    st.markdown(f"*{selected['venue_type'].replace('_', ' ').title()}* · {selected['address']}")
+                    st.markdown(f"**{selected['rationale']}**")
+
+                with col2:
+                    st.metric("Similarity Score", f"{selected['similarity_score']:.0f}/100")
+                    st.metric("VIDPS Score", f"{selected['context']['distribution_fit_score']:.0f}")
+
+                # Score breakdown
+                st.markdown("**Score Breakdown**")
+                breakdown = selected["score_breakdown"]
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Type Match", f"{breakdown['type']:.0f}/30")
+                with col2:
+                    st.metric("Tier Match", f"{breakdown['tiers']:.0f}/30")
+                with col3:
+                    st.metric("Relevance", f"{breakdown['relevance']:.0f}/30")
+                with col4:
+                    st.metric("Authority", f"{breakdown['authority']:.0f}/10")
+
+            # Export
+            st.divider()
+            st.subheader("Export Results")
+
+            export_df = pd.DataFrame([
+                {
+                    "Rank": r["rank"],
+                    "Name": r["name"],
+                    "Type": r["venue_type"],
+                    "Address": r["address"],
+                    "Similarity Score": r["similarity_score"],
+                    "Confidence": r["confidence"],
+                    "Matched On": "; ".join(r["matched_on"]),
+                    "Rationale": r["rationale"],
+                    "VIDPS Score": r["context"]["distribution_fit_score"],
+                    "Price Tier": r["context"]["price_tier"],
+                    "Quality Tier": r["context"]["quality_tier"],
+                    "Place ID": r["place_id"],
+                }
+                for r in results_data
+            ])
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                csv = export_df.to_csv(index=False)
+                st.download_button(
+                    "Download CSV",
+                    csv,
+                    file_name=f"lookalike_{target_market}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+
+            with col2:
+                from io import BytesIO
+                buffer = BytesIO()
+                export_df.to_excel(buffer, index=False, sheet_name="Prospects")
+                st.download_button(
+                    "Download Excel",
+                    buffer.getvalue(),
+                    file_name=f"lookalike_{target_market}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+        else:
+            st.info("No matching venues found. Try adjusting your source accounts or confidence filter.")
+
+    elif len(accounts_to_process) > 0 and len(accounts_to_process) < 5:
+        st.warning(f"Enter at least 5 accounts (currently {len(accounts_to_process)})")
 
 
 # =============================================================================
