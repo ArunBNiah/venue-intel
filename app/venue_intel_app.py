@@ -774,7 +774,7 @@ elif page == "Explore Venues":
         # Display map
         try:
             venue_map = create_venue_map(df, map_type="heatmap" if map_type == "Heatmap" else "markers")
-            st.pydeck_chart(venue_map)
+            st.pydeck_chart(venue_map, use_container_width=True)
             if map_type == "Markers":
                 st.caption("Hover over markers to see venue details. Scroll to zoom.")
             else:
@@ -784,15 +784,34 @@ elif page == "Explore Venues":
             st.info("Showing simple map instead")
             st.map(df[["latitude", "longitude"]].dropna())
 
-        # Venue detail expander
+        # Venue detail section with search
         st.divider()
         st.subheader("Venue Score Breakdown")
-        st.caption("Select a venue to see detailed scoring components")
 
+        # Search and select venue
         venue_names = df["name"].tolist()
+
+        # Search filter
+        search_term = st.text_input(
+            "Search venues",
+            placeholder="Type to search by name...",
+            key="venue_search"
+        )
+
+        # Filter venue names based on search
+        if search_term:
+            filtered_names = [n for n in venue_names if search_term.lower() in n.lower()]
+            if filtered_names:
+                st.caption(f"Found {len(filtered_names)} matches")
+            else:
+                filtered_names = venue_names
+                st.caption("No matches - showing all venues")
+        else:
+            filtered_names = venue_names
+
         selected_venue = st.selectbox(
             "Select Venue",
-            venue_names,
+            filtered_names,
             key="venue_detail",
             placeholder="Choose a venue..."
         )

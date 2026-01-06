@@ -569,22 +569,26 @@ BRAND_PROFILES = {
         "description": "Premium cocktail bars and upscale venues",
         "weights": {"type": 0.45, "price": 0.35, "attribute": 0.20},
         "type_boost": {"is_cocktail_focused": 0.15, "is_casual_drinking": -0.10},
+        "authority_boost": 5.0,  # Modest boost for 50 Best bars
     },
     "craft_beer": {
         "description": "Craft beer focused venues and pubs",
         "weights": {"type": 0.30, "price": 0.15, "attribute": 0.55},
         "type_boost": {"is_casual_drinking": 0.20, "is_cocktail_focused": -0.05},
+        "authority_boost": 2.0,  # Lower - authority lists are cocktail-focused
     },
     "fine_wine": {
         "description": "Wine bars and fine dining",
         "weights": {"type": 0.35, "price": 0.40, "attribute": 0.25},
         "type_boost": {"is_dining_focused": 0.15, "is_nightlife_focused": -0.15},
+        "authority_boost": 3.0,  # Moderate - some overlap with fine dining
     },
     "budget_drinks": {
         "description": "High-volume budget-friendly venues",
         "weights": {"type": 0.25, "price": 0.15, "attribute": 0.60},
         "type_boost": {"is_casual_drinking": 0.20, "is_nightlife_focused": 0.10},
         "invert_price": True,  # Lower price = higher score
+        "authority_boost": 0.0,  # No boost - authority bars are premium-focused
     },
 }
 
@@ -660,6 +664,7 @@ def get_venues_by_profile(
     """Get venues ranked by a specific brand profile.
 
     Recalculates M and distribution_fit_score using stored sub-components.
+    Applies authority boost for venues on 50 Best lists (configurable per profile).
 
     Args:
         city: City name
@@ -674,12 +679,17 @@ def get_venues_by_profile(
     rows = conn.execute("""
         SELECT *,
                m_type_score, m_price_score, m_attribute_score, m_keyword_score,
-               is_cocktail_focused, is_dining_focused, is_nightlife_focused, is_casual_drinking
+               is_cocktail_focused, is_dining_focused, is_nightlife_focused, is_casual_drinking,
+               on_worlds_50_best, on_asias_50_best, on_north_americas_50_best
         FROM venues
         WHERE city = ?
     """, (city.lower(),)).fetchall()
 
     conn.close()
+
+    # Get profile config
+    config = BRAND_PROFILES.get(profile, BRAND_PROFILES["premium_spirits"])
+    authority_boost = config.get("authority_boost", 0.0)
 
     # Recalculate scores for each venue
     results = []
@@ -696,7 +706,16 @@ def get_venues_by_profile(
         )
 
         # Recalculate distribution fit score with new M
-        new_score = (0.25 * row["v_score"] + 0.25 * row["r_score"] + 0.50 * new_m) * 100
+        base_score = (0.25 * row["v_score"] + 0.25 * row["r_score"] + 0.50 * new_m) * 100
+
+        # Apply authority boost if venue is on any 50 Best list
+        is_authority = (
+            row["on_worlds_50_best"] == 1 or
+            row["on_asias_50_best"] == 1 or
+            row["on_north_americas_50_best"] == 1
+        )
+        boost_applied = authority_boost if is_authority else 0.0
+        new_score = min(100.0, base_score + boost_applied)  # Cap at 100
 
         results.append({
             "place_id": row["place_id"],
@@ -711,6 +730,9 @@ def get_venues_by_profile(
             "m_score": round(new_m, 3),
             "m_score_original": row["m_score"],
             "distribution_fit_score": round(new_score, 1),
+            "base_score": round(base_score, 1),
+            "authority_boost": boost_applied,
+            "is_authority_bar": is_authority,
             "original_score": row["distribution_fit_score"],
             "volume_tier": row["volume_tier"],
             "quality_tier": row["quality_tier"],
@@ -718,6 +740,7 @@ def get_venues_by_profile(
             "confidence_tier": row["confidence_tier"],
             "is_cocktail_focused": bool(row["is_cocktail_focused"]),
             "is_casual_drinking": bool(row["is_casual_drinking"]),
+            "is_premium_indicator": bool(row["is_premium_indicator"]),
             "profile": profile,
         })
 
