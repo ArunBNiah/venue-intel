@@ -771,50 +771,63 @@ elif page == "Explore Venues":
         else:
             st.caption("Heatmap intensity reflects venue density and score concentration")
 
-        # Display map
+        # Display map with click selection
         try:
             venue_map = create_venue_map(df, map_type="heatmap" if map_type == "Heatmap" else "markers")
-            st.pydeck_chart(venue_map, use_container_width=True)
+
             if map_type == "Markers":
-                st.caption("Hover over markers to see venue details. Scroll to zoom.")
+                # Enable click selection on markers
+                map_event = st.pydeck_chart(
+                    venue_map,
+                    use_container_width=True,
+                    selection_mode="single-object",
+                    on_select="rerun",
+                    key="venue_map"
+                )
+
+                # Check if a venue was clicked
+                if map_event and map_event.selection:
+                    objects = map_event.selection.get("objects", {})
+                    if objects:
+                        for layer_data in objects.values():
+                            if layer_data and len(layer_data) > 0:
+                                clicked_name = layer_data[0].get("name")
+                                if clicked_name:
+                                    st.session_state["map_selected_venue"] = clicked_name
+                                break
+
+                st.caption("Click a marker to view details below. Hover to preview.")
             else:
+                st.pydeck_chart(venue_map, use_container_width=True)
                 st.caption("Brighter areas indicate higher concentration of high-scoring venues.")
         except Exception as e:
             st.warning(f"Could not display map: {e}")
             st.info("Showing simple map instead")
             st.map(df[["latitude", "longitude"]].dropna())
 
-        # Venue detail section with search
+        # Venue detail section
         st.divider()
         st.subheader("Venue Score Breakdown")
 
-        # Search and select venue
         venue_names = df["name"].tolist()
 
-        # Search filter
-        search_term = st.text_input(
-            "Search venues",
-            placeholder="Type to search by name...",
-            key="venue_search"
-        )
-
-        # Filter venue names based on search
-        if search_term:
-            filtered_names = [n for n in venue_names if search_term.lower() in n.lower()]
-            if filtered_names:
-                st.caption(f"Found {len(filtered_names)} matches")
-            else:
-                filtered_names = venue_names
-                st.caption("No matches - showing all venues")
-        else:
-            filtered_names = venue_names
+        # Determine default selection from map click
+        map_selected = st.session_state.get("map_selected_venue")
+        default_index = None
+        if map_selected and map_selected in venue_names:
+            default_index = venue_names.index(map_selected)
 
         selected_venue = st.selectbox(
             "Select Venue",
-            filtered_names,
+            venue_names,
+            index=default_index,
             key="venue_detail",
             placeholder="Choose a venue..."
         )
+
+        # Show indicator if selected via map
+        if map_selected and selected_venue == map_selected:
+            st.caption(f"Selected from map: **{selected_venue}**")
 
         if selected_venue:
             venue_row = df[df["name"] == selected_venue].iloc[0]
