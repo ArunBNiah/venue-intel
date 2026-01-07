@@ -283,13 +283,36 @@ st.markdown(f"""
 # Authentication
 # =============================================================================
 
-# Load authentication config
-AUTH_CONFIG_PATH = Path(__file__).parent.parent / "config" / "auth.yaml"
+def load_auth_config():
+    """Load auth config from Streamlit secrets or local YAML file."""
+    # Try Streamlit secrets first (for cloud deployment)
+    if hasattr(st, 'secrets') and 'credentials' in st.secrets:
+        # Convert from Streamlit secrets format to dict
+        config = {
+            'credentials': {
+                'usernames': dict(st.secrets['credentials']['usernames'])
+            },
+            'cookie': dict(st.secrets['cookie']),
+            'preauthorized': dict(st.secrets.get('preauthorized', {'emails': []}))
+        }
+        # Convert nested user data
+        for username in config['credentials']['usernames']:
+            config['credentials']['usernames'][username] = dict(
+                st.secrets['credentials']['usernames'][username]
+            )
+        return config
 
-if AUTH_CONFIG_PATH.exists():
-    with open(AUTH_CONFIG_PATH) as file:
-        auth_config = yaml.load(file, Loader=SafeLoader)
+    # Fall back to local YAML file (for local development)
+    auth_path = Path(__file__).parent.parent / "config" / "auth.yaml"
+    if auth_path.exists():
+        with open(auth_path) as file:
+            return yaml.load(file, Loader=SafeLoader)
 
+    return None
+
+auth_config = load_auth_config()
+
+if auth_config:
     authenticator = stauth.Authenticate(
         auth_config['credentials'],
         auth_config['cookie']['name'],
