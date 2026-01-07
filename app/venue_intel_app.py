@@ -11,8 +11,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import streamlit as st
+import streamlit_authenticator as stauth
 import pandas as pd
 import pydeck as pdk
+import yaml
+from yaml.loader import SafeLoader
 from datetime import datetime
 from io import BytesIO
 
@@ -37,7 +40,7 @@ st.set_page_config(
     page_title="Venue Intelligence",
     page_icon="V",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -274,6 +277,58 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# Authentication
+# =============================================================================
+
+# Load authentication config
+AUTH_CONFIG_PATH = Path(__file__).parent.parent / "config" / "auth.yaml"
+
+if AUTH_CONFIG_PATH.exists():
+    with open(AUTH_CONFIG_PATH) as file:
+        auth_config = yaml.load(file, Loader=SafeLoader)
+
+    authenticator = stauth.Authenticate(
+        auth_config['credentials'],
+        auth_config['cookie']['name'],
+        auth_config['cookie']['key'],
+        auth_config['cookie']['expiry_days'],
+        auth_config.get('preauthorized', {})
+    )
+
+    # Login widget
+    name, authentication_status, username = authenticator.login('main')
+
+    if authentication_status == False:
+        st.error('Username/password is incorrect')
+        st.stop()
+    elif authentication_status == None:
+        # Show login page with branding
+        st.markdown(f"""
+        <div style="text-align: center; padding: 60px 20px;">
+            <div style="font-size: 3rem; font-weight: 700; margin-bottom: 10px;">
+                <span style="color: {TEXT_PRIMARY};">Venue</span>
+                <span style="color: {ACCENT_COLOR};">Intel</span>
+            </div>
+            <p style="color: {TEXT_SECONDARY}; font-size: 1.1rem; margin-bottom: 40px;">
+                Distribution Intelligence Platform
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.info('Please enter your username and password')
+        st.stop()
+
+    # User is authenticated - show logout in sidebar later
+    user_role = auth_config['credentials']['usernames'].get(username, {}).get('role', 'viewer')
+else:
+    # No auth config - allow access (for development)
+    authentication_status = True
+    name = "Developer"
+    username = "dev"
+    user_role = "admin"
+    authenticator = None
 
 
 # =============================================================================
@@ -541,7 +596,8 @@ def get_m_confidence_note(m_score: float, venue_type: str) -> str:
 # Check for Admin Mode
 # =============================================================================
 
-admin_mode = st.query_params.get("admin", "false").lower() == "true"
+# Admin mode if user role is admin OR query param is set
+admin_mode = user_role == "admin" or st.query_params.get("admin", "false").lower() == "true"
 
 
 # =============================================================================
@@ -554,6 +610,19 @@ st.sidebar.markdown(f"""
     <span style="font-size: 1.8rem; font-weight: 700; color: {ACCENT_COLOR};">Intel</span>
 </div>
 """, unsafe_allow_html=True)
+
+# User info and logout
+st.sidebar.markdown(f"""
+<div style="background-color: {BG_ELEVATED}; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+    <div style="color: {TEXT_SECONDARY}; font-size: 0.8rem; margin-bottom: 4px;">Logged in as</div>
+    <div style="color: {TEXT_PRIMARY}; font-weight: 600;">{name}</div>
+</div>
+""", unsafe_allow_html=True)
+
+if authenticator:
+    authenticator.logout('Logout', 'sidebar')
+
+st.sidebar.divider()
 
 # Build navigation options
 nav_options = ["Home", "Explore", "Expansion Planner", "Request City"]
