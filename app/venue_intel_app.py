@@ -14,6 +14,7 @@ import streamlit as st
 import pandas as pd
 import pydeck as pdk
 from datetime import datetime
+from io import BytesIO
 
 from venue_intel.storage import (
     get_connection,
@@ -29,7 +30,7 @@ from venue_intel.lookalike import find_lookalikes, AccountInput
 
 
 # =============================================================================
-# Page Config
+# Page Config - Dark Mode
 # =============================================================================
 
 st.set_page_config(
@@ -41,88 +42,236 @@ st.set_page_config(
 
 
 # =============================================================================
-# Custom Styling
+# Custom Dark Mode Styling
 # =============================================================================
 
-st.markdown("""
+ACCENT_COLOR = "#FF520E"
+ACCENT_LIGHT = "#FF7A45"
+BG_DARK = "#0E1117"
+BG_CARD = "#1A1D24"
+BG_ELEVATED = "#262A33"
+TEXT_PRIMARY = "#FAFAFA"
+TEXT_SECONDARY = "#A0A0A0"
+BORDER_COLOR = "#333842"
+
+st.markdown(f"""
 <style>
+    /* Dark mode base */
+    .stApp {{
+        background-color: {BG_DARK};
+    }}
+
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {{
+        background-color: {BG_CARD};
+        border-right: 1px solid {BORDER_COLOR};
+    }}
+
+    [data-testid="stSidebar"] .stMarkdown {{
+        color: {TEXT_PRIMARY};
+    }}
+
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {{
+        color: {TEXT_PRIMARY} !important;
+    }}
+
+    /* Accent color for key elements */
+    .stButton > button[kind="primary"] {{
+        background-color: {ACCENT_COLOR};
+        border-color: {ACCENT_COLOR};
+        color: white;
+    }}
+
+    .stButton > button[kind="primary"]:hover {{
+        background-color: {ACCENT_LIGHT};
+        border-color: {ACCENT_LIGHT};
+    }}
+
+    /* Metrics styling */
+    [data-testid="stMetricValue"] {{
+        color: {ACCENT_COLOR};
+    }}
+
+    [data-testid="stMetricLabel"] {{
+        color: {TEXT_SECONDARY};
+    }}
+
+    /* Cards and containers */
+    .metric-card {{
+        background-color: {BG_CARD};
+        border: 1px solid {BORDER_COLOR};
+        border-radius: 8px;
+        padding: 20px;
+        margin: 8px 0;
+    }}
+
+    .metric-value {{
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: {ACCENT_COLOR};
+        margin: 0;
+    }}
+
+    .metric-label {{
+        font-size: 0.9rem;
+        color: {TEXT_SECONDARY};
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }}
+
+    /* Home page cards */
+    .feature-card {{
+        background-color: {BG_CARD};
+        border: 1px solid {BORDER_COLOR};
+        border-radius: 12px;
+        padding: 24px;
+        margin: 12px 0;
+        transition: border-color 0.2s;
+    }}
+
+    .feature-card:hover {{
+        border-color: {ACCENT_COLOR};
+    }}
+
+    .feature-title {{
+        color: {ACCENT_COLOR};
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }}
+
+    .feature-description {{
+        color: {TEXT_SECONDARY};
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }}
+
     /* Confidence tier badges */
-    .confidence-high {
-        background-color: #28a745;
-        color: white;
-        padding: 2px 8px;
+    .confidence-high {{
+        background-color: #1B4D3E;
+        color: #4ADE80;
+        padding: 4px 10px;
         border-radius: 4px;
         font-size: 0.85em;
-    }
-    .confidence-medium {
-        background-color: #ffc107;
-        color: black;
-        padding: 2px 8px;
+        font-weight: 500;
+    }}
+    .confidence-medium {{
+        background-color: #4A3728;
+        color: #FBBF24;
+        padding: 4px 10px;
         border-radius: 4px;
         font-size: 0.85em;
-    }
-    .confidence-low {
-        background-color: #dc3545;
-        color: white;
-        padding: 2px 8px;
+        font-weight: 500;
+    }}
+    .confidence-low {{
+        background-color: #4A2828;
+        color: #F87171;
+        padding: 4px 10px;
         border-radius: 4px;
         font-size: 0.85em;
-    }
-
-    /* Score breakdown bars */
-    .score-bar {
-        height: 8px;
-        border-radius: 4px;
-        margin: 4px 0;
-    }
-
-    /* Data freshness warning */
-    .freshness-warning {
-        background-color: #fff3cd;
-        border-left: 4px solid #ffc107;
-        padding: 10px;
-        margin: 10px 0;
-    }
+        font-weight: 500;
+    }}
 
     /* Professional badges */
-    .badge {
+    .badge {{
         display: inline-block;
-        padding: 2px 8px;
+        padding: 4px 10px;
         border-radius: 4px;
         font-size: 0.8em;
         font-weight: 500;
-        margin-right: 4px;
-    }
-    .badge-authority {
-        background-color: #1a472a;
-        color: #ffd700;
-    }
-    .badge-premium {
-        background-color: #2c3e50;
-        color: white;
-    }
-    .badge-signal {
-        background-color: #e8e8e8;
-        color: #333;
-    }
+        margin-right: 6px;
+    }}
+    .badge-authority {{
+        background-color: #2D1F0E;
+        color: #FFD700;
+        border: 1px solid #5C4A1E;
+    }}
+    .badge-premium {{
+        background-color: {ACCENT_COLOR}22;
+        color: {ACCENT_COLOR};
+        border: 1px solid {ACCENT_COLOR}44;
+    }}
 
     /* Map legend styling */
-    .map-legend {
+    .map-legend {{
         display: flex;
         gap: 16px;
-        padding: 8px 0;
+        padding: 12px 0;
         font-size: 0.85em;
-    }
-    .legend-item {
+        color: {TEXT_SECONDARY};
+    }}
+    .legend-item {{
         display: flex;
         align-items: center;
-        gap: 4px;
-    }
-    .legend-dot {
+        gap: 6px;
+    }}
+    .legend-dot {{
         width: 12px;
         height: 12px;
         border-radius: 50%;
-    }
+    }}
+
+    /* Divider styling */
+    hr {{
+        border-color: {BORDER_COLOR};
+    }}
+
+    /* Table styling */
+    .stDataFrame {{
+        background-color: {BG_CARD};
+    }}
+
+    /* Export section */
+    .export-section {{
+        background-color: {BG_ELEVATED};
+        border: 1px solid {BORDER_COLOR};
+        border-radius: 8px;
+        padding: 20px;
+        margin-top: 20px;
+    }}
+
+    .export-title {{
+        color: {ACCENT_COLOR};
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+    }}
+
+    /* Info boxes */
+    .stAlert {{
+        background-color: {BG_CARD};
+        border: 1px solid {BORDER_COLOR};
+    }}
+
+    /* Welcome hero */
+    .hero {{
+        background: linear-gradient(135deg, {BG_CARD} 0%, {BG_ELEVATED} 100%);
+        border: 1px solid {BORDER_COLOR};
+        border-radius: 16px;
+        padding: 40px;
+        margin-bottom: 30px;
+        text-align: center;
+    }}
+
+    .hero-title {{
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: {TEXT_PRIMARY};
+        margin-bottom: 12px;
+    }}
+
+    .hero-accent {{
+        color: {ACCENT_COLOR};
+    }}
+
+    .hero-subtitle {{
+        font-size: 1.2rem;
+        color: {TEXT_SECONDARY};
+        max-width: 600px;
+        margin: 0 auto;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -160,37 +309,10 @@ def get_database_stats():
         "SELECT COUNT(*) FROM venues WHERE is_premium_indicator = 1"
     ).fetchone()[0]
 
-    # Top venue types
-    stats["top_types"] = pd.read_sql_query(
-        "SELECT venue_type, COUNT(*) as count FROM venues GROUP BY venue_type ORDER BY count DESC LIMIT 10",
-        conn
-    )
-
-    # Score version distribution
-    stats["score_versions"] = pd.read_sql_query(
-        "SELECT score_version, COUNT(*) as count FROM venues GROUP BY score_version ORDER BY count DESC",
-        conn
-    )
-
-    # Confidence distribution
-    stats["confidence_dist"] = pd.read_sql_query(
-        "SELECT confidence_tier, COUNT(*) as count FROM venues GROUP BY confidence_tier",
-        conn
-    )
-
     # Authority sources
     stats["authority_count"] = conn.execute(
         "SELECT COUNT(*) FROM venues WHERE on_worlds_50_best = 1 OR on_asias_50_best = 1 OR on_north_americas_50_best = 1"
     ).fetchone()[0]
-
-    stats["authority_breakdown"] = pd.read_sql_query(
-        """SELECT
-            SUM(CASE WHEN on_worlds_50_best = 1 THEN 1 ELSE 0 END) as "World's 50 Best",
-            SUM(CASE WHEN on_asias_50_best = 1 THEN 1 ELSE 0 END) as "Asia's 50 Best",
-            SUM(CASE WHEN on_north_americas_50_best = 1 THEN 1 ELSE 0 END) as "NA's 50 Best"
-        FROM venues""",
-        conn
-    )
 
     conn.close()
     return stats
@@ -199,19 +321,17 @@ def get_database_stats():
 @st.cache_data(ttl=60)
 def get_venues_filtered(
     city: str | None = None,
-    venue_types: list[str] | None = None,  # Changed to list for multi-select
+    venue_types: list[str] | None = None,
     min_score: float = 0,
     premium_only: bool = False,
     volume_tier: str | None = None,
     quality_tier: str | None = None,
     limit: int = 100,
-    # Signal filters
     serves_cocktails: bool | None = None,
     serves_spirits: bool | None = None,
     has_great_cocktails: bool | None = None,
     is_upscale: bool | None = None,
     is_late_night: bool | None = None,
-    # Authority filters
     on_any_authority_list: bool | None = None,
 ):
     """Get filtered venues from database."""
@@ -224,7 +344,6 @@ def get_venues_filtered(
         query += " AND city = ?"
         params.append(city.lower())
 
-    # Handle multiple venue types
     if venue_types and len(venue_types) > 0:
         placeholders = ",".join(["?" for _ in venue_types])
         query += f" AND venue_type IN ({placeholders})"
@@ -245,7 +364,6 @@ def get_venues_filtered(
         query += " AND quality_tier = ?"
         params.append(quality_tier)
 
-    # Signal filters
     if serves_cocktails:
         query += " AND serves_cocktails = 1"
 
@@ -261,7 +379,6 @@ def get_venues_filtered(
     if is_late_night:
         query += " AND is_late_night = 1"
 
-    # Authority filters - match any authority list
     if on_any_authority_list:
         query += " AND (on_worlds_50_best = 1 OR on_asias_50_best = 1 OR on_north_americas_50_best = 1)"
 
@@ -288,14 +405,15 @@ def get_venue_types_with_counts():
     conn.close()
     return types_df
 
+
 def format_venue_type(venue_type: str) -> str:
-    """Format venue_type for display: 'adult_entertainment_club' -> 'Adult Entertainment Club'"""
+    """Format venue_type for display."""
     return venue_type.replace("_", " ").title()
 
+
 def get_venue_type_options():
-    """Get venue type options formatted for display, sorted by count."""
+    """Get venue type options formatted for display."""
     types_df = get_venue_types_with_counts()
-    # Return list of tuples: (display_name, raw_value, count)
     options = []
     for _, row in types_df.iterrows():
         display = format_venue_type(row['venue_type'])
@@ -323,78 +441,29 @@ def get_cities():
 # Helper Functions
 # =============================================================================
 
-def render_confidence_badge(confidence: str) -> str:
-    """Render confidence tier as colored badge."""
-    conf_lower = confidence.lower()
-    if conf_lower == "high":
-        return '<span class="confidence-high">HIGH</span>'
-    elif conf_lower == "medium":
-        return '<span class="confidence-medium">MEDIUM</span>'
-    else:
-        return '<span class="confidence-low">LOW</span>'
-
-
-def render_score_bar(score: float, max_score: float = 1.0, color: str = "#4CAF50") -> str:
-    """Render a score as a progress bar."""
-    pct = min(100, (score / max_score) * 100)
-    return f'<div class="score-bar" style="background: linear-gradient(to right, {color} {pct}%, #e0e0e0 {pct}%);"></div>'
-
-
-def get_m_confidence_note(m_score: float, venue_type: str) -> str:
-    """Generate a confidence note for M score based on available evidence."""
-    # M score is high confidence if venue type is strongly positive
-    strong_types = ["cocktail_bar", "wine_bar"]
-    moderate_types = ["bar", "lounge", "pub"]
-
-    if venue_type in strong_types:
-        return "Strong evidence (venue type)"
-    elif venue_type in moderate_types:
-        return "Moderate evidence (venue type)"
-    else:
-        return "Limited evidence - interpret with caution"
-
-
 def score_to_color(score: float) -> list:
-    """Convert distribution fit score to RGB color.
-
-    High scores (80+) = Green
-    Medium scores (60-80) = Yellow/Orange
-    Low scores (<60) = Red
-    """
+    """Convert distribution fit score to RGB color."""
     if score >= 80:
-        # Green
         return [39, 174, 96, 200]
     elif score >= 70:
-        # Light green
         return [46, 204, 113, 200]
     elif score >= 60:
-        # Yellow
         return [241, 196, 15, 200]
     elif score >= 50:
-        # Orange
         return [230, 126, 34, 200]
     else:
-        # Red
         return [231, 76, 60, 200]
 
 
 def create_venue_map(df: pd.DataFrame, map_type: str = "markers") -> pdk.Deck:
-    """Create a pydeck map with venue markers or heatmap.
-
-    Args:
-        df: DataFrame with venue data
-        map_type: "markers" for scatter plot, "heatmap" for density heatmap
-    """
-    # Prepare map data
+    """Create a pydeck map with venue markers or heatmap."""
     map_df = df[["name", "latitude", "longitude", "distribution_fit_score", "venue_type"]].copy()
     map_df = map_df.dropna(subset=["latitude", "longitude"])
 
-    # Calculate center point
     center_lat = map_df["latitude"].mean()
     center_lon = map_df["longitude"].mean()
 
     if map_type == "heatmap":
-        # Heatmap layer for density visualization
         layer = pdk.Layer(
             "HeatmapLayer",
             data=map_df,
@@ -405,17 +474,16 @@ def create_venue_map(df: pd.DataFrame, map_type: str = "markers") -> pdk.Deck:
             intensity=1,
             threshold=0.1,
             color_range=[
-                [255, 255, 178],   # Light yellow
-                [254, 204, 92],    # Yellow
-                [253, 141, 60],    # Orange
-                [240, 59, 32],     # Red-orange
-                [189, 0, 38],      # Dark red
+                [255, 255, 178],
+                [254, 204, 92],
+                [253, 141, 60],
+                [240, 59, 32],
+                [189, 0, 38],
             ],
         )
-        tooltip = None  # Heatmap doesn't support tooltips
+        tooltip = None
         zoom = 10
     else:
-        # Scatter plot with colored markers
         map_df["color"] = map_df["distribution_fit_score"].apply(score_to_color)
 
         layer = pdk.Layer(
@@ -432,15 +500,15 @@ def create_venue_map(df: pd.DataFrame, map_type: str = "markers") -> pdk.Deck:
         tooltip = {
             "html": "<b>{name}</b><br/>Score: {distribution_fit_score}<br/>Type: {venue_type}",
             "style": {
-                "backgroundColor": "steelblue",
-                "color": "white",
+                "backgroundColor": "#1A1D24",
+                "color": "#FAFAFA",
                 "fontSize": "12px",
-                "padding": "8px"
+                "padding": "8px",
+                "border": "1px solid #333842"
             }
         }
         zoom = 11
 
-    # Create the view
     view_state = pdk.ViewState(
         latitude=center_lat,
         longitude=center_lon,
@@ -452,126 +520,212 @@ def create_venue_map(df: pd.DataFrame, map_type: str = "markers") -> pdk.Deck:
         layers=[layer],
         initial_view_state=view_state,
         tooltip=tooltip,
-        map_style="light",
+        map_style="mapbox://styles/mapbox/dark-v10",
     )
 
 
+def get_m_confidence_note(m_score: float, venue_type: str) -> str:
+    """Generate a confidence note for M score."""
+    strong_types = ["cocktail_bar", "wine_bar"]
+    moderate_types = ["bar", "lounge", "pub"]
+
+    if venue_type in strong_types:
+        return "Strong evidence (venue type)"
+    elif venue_type in moderate_types:
+        return "Moderate evidence (venue type)"
+    else:
+        return "Limited evidence - interpret with caution"
+
+
 # =============================================================================
-# Sidebar
+# Check for Admin Mode
 # =============================================================================
 
-st.sidebar.title("Venue Intelligence")
-st.sidebar.caption("Distribution Prioritisation System")
+admin_mode = st.query_params.get("admin", "false").lower() == "true"
+
+
+# =============================================================================
+# Sidebar Navigation
+# =============================================================================
+
+st.sidebar.markdown(f"""
+<div style="padding: 10px 0 20px 0;">
+    <span style="font-size: 1.8rem; font-weight: 700; color: {TEXT_PRIMARY};">Venue</span>
+    <span style="font-size: 1.8rem; font-weight: 700; color: {ACCENT_COLOR};">Intel</span>
+</div>
+""", unsafe_allow_html=True)
+
+# Build navigation options
+nav_options = ["Home", "Explore", "Expansion Planner", "Request City"]
+if admin_mode:
+    nav_options.append("Validation (Admin)")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["Overview", "Explore Venues", "Expansion Planner", "Export Data", "Validation Export", "Request New City"],
+    nav_options,
     index=0,
+    label_visibility="collapsed",
 )
 
 st.sidebar.divider()
 
-# Score version and model info
-st.sidebar.subheader("Model Info")
-st.sidebar.markdown("""
-**Score Version:** `v1.0-historical`
-**Model:** V/R/M Weighted
-**Status:** Current best model
-""")
+# Model info
+st.sidebar.markdown(f"""
+<div style="color: {TEXT_SECONDARY}; font-size: 0.85rem;">
+    <div style="margin-bottom: 8px;"><strong style="color: {TEXT_PRIMARY};">Model</strong></div>
+    <div>Version: v1.0-historical</div>
+    <div>Type: V/R/M Weighted</div>
+</div>
+""", unsafe_allow_html=True)
 
-st.sidebar.caption("Scores represent current model output, not absolute truth. Validate with domain expertise.")
-
-st.sidebar.divider()
-
-# Data freshness warning
-st.sidebar.subheader("Data Freshness")
-st.sidebar.warning("Historical import - refresh recommended for production use.")
+if admin_mode:
+    st.sidebar.markdown(f"""
+    <div style="background-color: {ACCENT_COLOR}22; border: 1px solid {ACCENT_COLOR}44;
+                border-radius: 4px; padding: 8px; margin-top: 16px; text-align: center;">
+        <span style="color: {ACCENT_COLOR}; font-weight: 600;">ADMIN MODE</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # =============================================================================
-# Overview Page
+# HOME PAGE
 # =============================================================================
 
-if page == "Overview":
-    st.title("Database Overview")
+if page == "Home":
+    # Hero section
+    st.markdown(f"""
+    <div class="hero">
+        <div class="hero-title">
+            Welcome to <span class="hero-accent">Venue Intelligence</span>
+        </div>
+        <div class="hero-subtitle">
+            Prioritise your distribution with data-driven venue rankings.
+            Find the right accounts, in the right markets, for your brand.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
+    # Quick stats
     stats = get_database_stats()
 
-    # Key metrics
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Total Venues", f"{stats['total_venues']:,}")
+        st.markdown(f"""
+        <div class="metric-card">
+            <p class="metric-value">{stats['total_venues']:,}</p>
+            <p class="metric-label">Venues</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
-        st.metric("Cities", len(stats["by_city"]))
+        st.markdown(f"""
+        <div class="metric-card">
+            <p class="metric-value">{len(stats['by_city'])}</p>
+            <p class="metric-label">Cities</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col3:
-        st.metric("Countries", len(stats["by_country"]))
+        st.markdown(f"""
+        <div class="metric-card">
+            <p class="metric-value">{len(stats['by_country'])}</p>
+            <p class="metric-label">Countries</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col4:
-        st.metric("50 Best Bars", f"{stats['authority_count']:,}")
+        st.markdown(f"""
+        <div class="metric-card">
+            <p class="metric-value">{stats['authority_count']}</p>
+            <p class="metric-label">50 Best Bars</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Data quality callout
-    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Feature cards
+    st.markdown(f"### What would you like to do?")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Confidence Distribution")
-        conf_df = stats["confidence_dist"].copy()
-        conf_df["confidence_tier"] = conf_df["confidence_tier"].str.title()
-        st.dataframe(conf_df, use_container_width=True, hide_index=True)
-        st.caption("Confidence reflects data volume. Historical imports capped at Medium.")
+        st.markdown(f"""
+        <div class="feature-card">
+            <div class="feature-title">Explore & Export Venues</div>
+            <div class="feature-description">
+                Browse our database of scored venues. Filter by city, venue type,
+                brand profile, and quality signals. See why each venue ranks where
+                it does, then export your target list.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Go to Explore", type="primary", use_container_width=True):
+            st.query_params["nav"] = "explore"
+            st.rerun()
 
     with col2:
-        st.subheader("Authority Sources")
-        auth_df = stats["authority_breakdown"].T.reset_index()
-        auth_df.columns = ["Source", "Count"]
-        st.dataframe(auth_df, use_container_width=True, hide_index=True)
-        st.caption("Bars featured on respected industry lists.")
+        st.markdown(f"""
+        <div class="feature-card">
+            <div class="feature-title">Expansion Planner</div>
+            <div class="feature-description">
+                Already winning in one market? Upload your top accounts and we'll
+                find similar venues in a new market. Transfer your success pattern
+                without starting from scratch.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Go to Expansion Planner", type="primary", use_container_width=True):
+            st.query_params["nav"] = "expansion"
+            st.rerun()
 
-    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    # By city
-    col1, col2 = st.columns(2)
+    # Coverage breakdown
+    with st.expander("View Coverage by City"):
+        city_df = stats["by_city"].copy()
+        city_df["city"] = city_df["city"].str.title()
+        city_df["country"] = city_df["country"].str.upper()
+        city_df.columns = ["City", "Country", "Venues"]
+        st.dataframe(city_df, use_container_width=True, hide_index=True)
 
+
+# =============================================================================
+# EXPLORE PAGE (Combined Overview + Explore + Export)
+# =============================================================================
+
+elif page == "Explore":
+    st.title("Explore Venues")
+
+    # Top-line metrics
+    stats = get_database_stats()
+
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.subheader("Venues by City")
+        st.metric("Total Venues", f"{stats['total_venues']:,}")
+    with col2:
+        st.metric("Cities", len(stats["by_city"]))
+    with col3:
+        st.metric("Countries", len(stats["by_country"]))
+    with col4:
+        st.metric("50 Best Bars", stats["authority_count"])
+
+    # Coverage breakdown (collapsible)
+    with st.expander("Coverage by City"):
         city_df = stats["by_city"].copy()
         city_df["city"] = city_df["city"].str.title()
         st.dataframe(city_df, use_container_width=True, hide_index=True)
 
-    with col2:
-        st.subheader("Top Venue Types")
-        types_df = stats["top_types"].copy()
-        types_df["venue_type"] = types_df["venue_type"].str.replace("_", " ").str.title()
-        st.dataframe(types_df, use_container_width=True, hide_index=True)
+    st.divider()
 
-    # Chart
-    st.subheader("Venue Distribution")
-    chart_df = stats["by_city"].copy()
-    chart_df["city"] = chart_df["city"].str.title()
-    st.bar_chart(chart_df.set_index("city")["venues"])
-
-
-# =============================================================================
-# Explore Page
-# =============================================================================
-
-elif page == "Explore Venues":
-    st.title("Explore Venues")
-
-    # Get venue type options (sorted by count, formatted)
+    # --- Filters Section ---
     venue_type_options = get_venue_type_options()
     venue_type_display_list = [opt['display'] for opt in venue_type_options]
     venue_type_value_map = {opt['display']: opt['value'] for opt in venue_type_options}
 
-    # Brand profile options
     profile_options = list(get_available_profiles().keys())
     profile_labels = {k: v for k, v in get_available_profiles().items()}
 
-    # Primary filters
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -601,7 +755,6 @@ elif page == "Explore Venues":
         )
         selected_venue_types = [venue_type_value_map[d] for d in selected_types_display]
 
-    # Show profile description
     st.caption(f"**{brand_profile.replace('_', ' ').title()}:** {profile_labels[brand_profile]}")
 
     col1, col2, col3 = st.columns(3)
@@ -617,21 +770,16 @@ elif page == "Explore Venues":
 
     # Signal filters
     with st.expander("Beverage & Venue Signals"):
-        st.caption("Filter by venue attributes")
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             filter_serves_cocktails = st.checkbox("Serves Cocktails")
-
         with col2:
             filter_serves_spirits = st.checkbox("Serves Spirits")
-
         with col3:
             filter_great_cocktails = st.checkbox("Great Cocktails")
-
         with col4:
             filter_upscale = st.checkbox("Upscale Venue")
-
         with col5:
             filter_late_night = st.checkbox("Late Night")
 
@@ -656,17 +804,15 @@ elif page == "Explore Venues":
         with col3:
             limit = st.selectbox("Max Results", [50, 100, 250, 500, 1000], index=1)
 
-    # Get filtered data - use profile-based scoring
+    # Get filtered data
     if brand_profile != "premium_spirits":
-        # Use profile-based recalculation
         profile_data = get_venues_by_profile(
-            city=city if city != "All" else "london",  # Default to london if All
+            city=city if city != "All" else "london",
             profile=brand_profile,
-            limit=2000,  # Get more, filter after
+            limit=2000,
         )
         df = pd.DataFrame(profile_data)
 
-        # Apply filters manually
         if selected_venue_types:
             df = df[df["venue_type"].isin(selected_venue_types)]
         if min_score > 0:
@@ -680,7 +826,6 @@ elif page == "Explore Venues":
 
         df = df.head(limit)
     else:
-        # Use standard filtering for premium_spirits (default)
         df = get_venues_filtered(
             city=city,
             venue_types=selected_venue_types if selected_venue_types else None,
@@ -697,25 +842,20 @@ elif page == "Explore Venues":
             on_any_authority_list=filter_authority_bars if filter_authority_bars else None,
         )
 
-    # Show profile indicator if not default
-    if brand_profile != "premium_spirits":
-        st.caption(f"Showing {len(df)} venues | Ranked for **{brand_profile.replace('_', ' ').title()}** profile")
-    else:
-        st.caption(f"Showing {len(df)} venues")
+    st.divider()
 
+    # --- Results Section ---
     if len(df) > 0:
-        # Format for display - handle both standard and profile-based data
+        st.subheader(f"Results ({len(df)} venues)")
+
+        # Format for display
         base_cols = ["name", "city", "venue_type", "distribution_fit_score",
                      "volume_tier", "quality_tier", "confidence_tier"]
         base_names = ["Name", "City", "Type", "Score", "Volume", "Quality", "Confidence"]
 
-        # Add optional columns if present
         if "is_premium_indicator" in df.columns:
             base_cols.append("is_premium_indicator")
             base_names.append("Premium")
-        if "last_scored_at" in df.columns:
-            base_cols.append("last_scored_at")
-            base_names.append("Last Scored")
 
         display_df = df[[c for c in base_cols if c in df.columns]].copy()
         display_df.columns = base_names[:len(display_df.columns)]
@@ -727,57 +867,48 @@ elif page == "Explore Venues":
         display_df["Confidence"] = display_df["Confidence"].str.title()
         if "Premium" in display_df.columns:
             display_df["Premium"] = display_df["Premium"].map({1: "Yes", 0: "", True: "Yes", False: ""})
-        if "Last Scored" in display_df.columns:
-            display_df["Last Scored"] = pd.to_datetime(display_df["Last Scored"]).dt.strftime("%Y-%m-%d")
 
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # Quick stats
+        # Quick stats row
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Avg Score", f"{df['distribution_fit_score'].mean():.1f}")
         with col2:
             st.metric("Max Score", f"{df['distribution_fit_score'].max():.1f}")
         with col3:
-            st.metric("Premium Count", df["is_premium_indicator"].sum())
+            st.metric("Premium", df["is_premium_indicator"].sum())
         with col4:
-            high_conf = (df["confidence_tier"] == "medium").sum()  # Historical max is medium
+            high_conf = (df["confidence_tier"] == "medium").sum()
             st.metric("Medium+ Confidence", high_conf)
 
         # Map view
         st.divider()
-        st.subheader("Venue Map")
+        st.subheader("Map")
 
-        # Map controls
         col1, col2 = st.columns([1, 4])
         with col1:
             map_type = st.radio(
-                "Map Style",
+                "Style",
                 ["Markers", "Heatmap"],
                 horizontal=True,
-                help="Markers show individual venues, Heatmap shows density"
             )
 
-        # Legend for markers view
         if map_type == "Markers":
             st.markdown("""
             <div class="map-legend">
-                <div class="legend-item"><div class="legend-dot" style="background:#27ae60"></div> Score 80+</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> Score 70-79</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> Score 60-69</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#e67e22"></div> Score 50-59</div>
-                <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> Score &lt;50</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#27ae60"></div> 80+</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> 70-79</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> 60-69</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#e67e22"></div> 50-59</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> &lt;50</div>
             </div>
             """, unsafe_allow_html=True)
-        else:
-            st.caption("Heatmap intensity reflects venue density and score concentration")
 
-        # Display map with click selection
         try:
             venue_map = create_venue_map(df, map_type="heatmap" if map_type == "Heatmap" else "markers")
 
             if map_type == "Markers":
-                # Enable click selection on markers
                 map_event = st.pydeck_chart(
                     venue_map,
                     use_container_width=True,
@@ -786,7 +917,6 @@ elif page == "Explore Venues":
                     key="venue_map"
                 )
 
-                # Check if a venue was clicked
                 if map_event and map_event.selection:
                     objects = map_event.selection.get("objects", {})
                     if objects:
@@ -795,24 +925,18 @@ elif page == "Explore Venues":
                                 clicked_name = layer_data[0].get("name")
                                 if clicked_name:
                                     st.session_state["map_selected_venue"] = clicked_name
-                                break
-
-                st.caption("Click a marker to view details below. Hover to preview.")
+                            break
             else:
                 st.pydeck_chart(venue_map, use_container_width=True)
-                st.caption("Brighter areas indicate higher concentration of high-scoring venues.")
         except Exception as e:
             st.warning(f"Could not display map: {e}")
-            st.info("Showing simple map instead")
             st.map(df[["latitude", "longitude"]].dropna())
 
         # Venue detail section
         st.divider()
-        st.subheader("Venue Score Breakdown")
+        st.subheader("Venue Detail")
 
         venue_names = df["name"].tolist()
-
-        # Determine default selection from map click
         map_selected = st.session_state.get("map_selected_venue")
         default_index = None
         if map_selected and map_selected in venue_names:
@@ -826,10 +950,6 @@ elif page == "Explore Venues":
             placeholder="Choose a venue..."
         )
 
-        # Show indicator if selected via map
-        if map_selected and selected_venue == map_selected:
-            st.caption(f"Selected from map: **{selected_venue}**")
-
         if selected_venue:
             venue_row = df[df["name"] == selected_venue].iloc[0]
 
@@ -842,20 +962,16 @@ elif page == "Explore Venues":
 
                 st.divider()
 
-                # Score breakdown
                 st.markdown("#### Score Components")
 
-                # V Score
                 st.markdown(f"**V (Volume):** {venue_row['v_score']:.2f}")
                 st.progress(venue_row['v_score'])
                 st.caption(f"Volume tier: {venue_row['volume_tier'].replace('_', ' ').title()}")
 
-                # R Score
                 st.markdown(f"**R (Rating):** {venue_row['r_score']:.2f}")
                 st.progress(venue_row['r_score'])
                 st.caption(f"Quality tier: {venue_row['quality_tier'].replace('_', ' ').title()}")
 
-                # M Score with confidence note
                 st.markdown(f"**M (Match):** {venue_row['m_score']:.2f}")
                 st.progress(venue_row['m_score'])
                 m_note = get_m_confidence_note(venue_row['m_score'], venue_row['venue_type'])
@@ -865,7 +981,6 @@ elif page == "Explore Venues":
                 st.markdown("#### Summary")
                 st.metric("Distribution Fit", f"{venue_row['distribution_fit_score']:.1f}/100")
 
-                # Confidence badge
                 conf = venue_row['confidence_tier'].title()
                 if conf == "High":
                     st.success(f"Confidence: {conf}")
@@ -874,11 +989,9 @@ elif page == "Explore Venues":
                 else:
                     st.error(f"Confidence: {conf}")
 
-                # Premium indicator
                 if venue_row['is_premium_indicator']:
                     st.markdown('<span class="badge badge-premium">PREMIUM</span>', unsafe_allow_html=True)
 
-                # Authority badges (50 Best lists)
                 authority_badges = []
                 if venue_row.get('on_worlds_50_best') == 1:
                     rank = venue_row.get('worlds_50_best_rank')
@@ -893,77 +1006,24 @@ elif page == "Explore Venues":
                 for badge in authority_badges:
                     st.markdown(f'<span class="badge badge-authority">{badge}</span>', unsafe_allow_html=True)
 
-                # Freshness
-                st.markdown("#### Data Freshness")
+                st.markdown("#### Data")
                 st.text(f"Scored: {venue_row['last_scored_at'][:10]}")
                 st.text(f"Version: {venue_row['score_version']}")
 
-            # Rationale
             st.divider()
             st.markdown("#### Rationale")
             st.info(venue_row['rationale'])
 
-    else:
-        st.info("No venues match your filters.")
+        # --- Export Section ---
+        st.divider()
+        st.markdown(f"""
+        <div class="export-section">
+            <div class="export-title">Export Your Selection</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-
-# =============================================================================
-# Export Page
-# =============================================================================
-
-elif page == "Export Data":
-    st.title("Export Data")
-
-    st.write("Download venue data for your analysis.")
-
-    # Get venue type options (sorted by count, formatted)
-    export_venue_type_options = get_venue_type_options()
-    export_venue_type_display_list = [opt['display'] for opt in export_venue_type_options]
-    export_venue_type_value_map = {opt['display']: opt['value'] for opt in export_venue_type_options}
-
-    # Filters
-    col1, col2 = st.columns(2)
-
-    with col1:
-        city = st.selectbox("City", get_cities(), key="export_city")
-
-    with col2:
-        export_selected_types = st.multiselect(
-            "Venue Types",
-            options=export_venue_type_display_list,
-            default=[],
-            placeholder="All venue types - click to filter",
-            key="export_types"
-        )
-        export_venue_types = [export_venue_type_value_map[d] for d in export_selected_types]
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        min_score = st.slider("Min Score", 0, 100, 0, key="export_score")
-
-    with col2:
-        premium_only = st.checkbox("Premium Only", key="export_premium")
-
-    with col3:
-        limit = st.selectbox("Max Rows", [100, 500, 1000, 5000, "All"], key="export_limit")
-
-    # Get data
-    export_limit = 50000 if limit == "All" else limit
-
-    df = get_venues_filtered(
-        city=city,
-        venue_types=export_venue_types if export_venue_types else None,
-        min_score=min_score,
-        premium_only=premium_only,
-        limit=export_limit,
-    )
-
-    st.caption(f"{len(df)} venues match your criteria")
-
-    if len(df) > 0:
-        # Build column list (handle optional authority columns)
-        base_columns = [
+        # Build export dataframe
+        export_columns = [
             "name", "city", "country", "address",
             "venue_type", "distribution_fit_score",
             "v_score", "r_score", "m_score",
@@ -973,7 +1033,7 @@ elif page == "Export Data":
             "has_great_cocktails", "has_great_beer", "has_great_wine",
             "is_upscale", "is_late_night",
         ]
-        base_names = [
+        export_names = [
             "Name", "City", "Country", "Address",
             "Venue Type", "Distribution Fit Score",
             "V (Volume)", "R (Rating)", "M (Match)",
@@ -984,34 +1044,27 @@ elif page == "Export Data":
             "Upscale", "Late Night",
         ]
 
-        # Add authority columns if available
         if "on_worlds_50_best" in df.columns:
-            base_columns.extend([
+            export_columns.extend([
                 "on_worlds_50_best", "worlds_50_best_rank",
                 "on_asias_50_best", "asias_50_best_rank",
                 "on_north_americas_50_best", "north_americas_50_best_rank",
-                "authority_tier"
             ])
-            base_names.extend([
+            export_names.extend([
                 "World's 50 Best", "W50B Rank",
                 "Asia's 50 Best", "A50B Rank",
                 "NA's 50 Best", "NA50B Rank",
-                "Authority Tier"
             ])
 
-        base_columns.extend(["rationale", "place_id", "latitude", "longitude", "last_scored_at", "score_version"])
-        base_names.extend(["Rationale", "Place ID", "Latitude", "Longitude", "Last Scored", "Score Version"])
+        export_columns.extend(["rationale", "place_id", "latitude", "longitude"])
+        export_names.extend(["Rationale", "Place ID", "Latitude", "Longitude"])
 
-        # Prepare export dataframe with full details including signals
-        export_df = df[[c for c in base_columns if c in df.columns]].copy()
-        export_df.columns = base_names[:len(export_df.columns)]
+        export_df = df[[c for c in export_columns if c in df.columns]].copy()
+        export_df.columns = export_names[:len(export_df.columns)]
 
-        # Preview
-        st.subheader("Preview")
-        st.dataframe(export_df.head(10), use_container_width=True, hide_index=True)
+        st.caption(f"Export includes {len(export_df)} venues with all scores, signals, and metadata.")
 
-        # Download buttons
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns([1, 1, 2])
 
         with col1:
             csv = export_df.to_csv(index=False)
@@ -1020,125 +1073,27 @@ elif page == "Export Data":
                 data=csv,
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
+                type="primary",
+                use_container_width=True,
             )
 
         with col2:
-            # Excel export
-            from io import BytesIO
             buffer = BytesIO()
             export_df.to_excel(buffer, index=False, sheet_name="Venues")
-
             st.download_button(
                 label="Download Excel",
                 data=buffer.getvalue(),
                 file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
             )
 
-
-# =============================================================================
-# Validation Export Page
-# =============================================================================
-
-elif page == "Validation Export":
-    st.title("Validation Export")
-
-    st.markdown("""
-    Export top venues for manual validation. Use this to:
-    - Review if rankings make sense
-    - Identify false positives / false negatives
-    - Build a "Golden Set" for sanity checks
-    """)
-
-    st.divider()
-
-    # Validation parameters
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        val_city = st.selectbox("City", get_cities(), key="val_city")
-
-    with col2:
-        val_type = st.selectbox(
-            "Venue Type",
-            ["All", "Cocktail Bar", "Wine Bar", "Bar", "Pub", "Restaurant"],
-            key="val_type",
-            format_func=lambda x: x
-        )
-        # Convert display name to raw value
-        val_type_raw = val_type.lower().replace(" ", "_") if val_type != "All" else None
-
-    with col3:
-        val_count = st.selectbox("Top N venues", [10, 20, 50, 100], index=1)
-
-    # Get validation data
-    val_df = get_venues_filtered(
-        city=val_city if val_city != "All" else None,
-        venue_types=[val_type_raw] if val_type_raw else None,
-        min_score=0,
-        premium_only=False,
-        limit=val_count,
-    )
-
-    if len(val_df) > 0:
-        st.subheader(f"Top {len(val_df)} Venues for Validation")
-
-        # Create validation template
-        val_export = val_df[[
-            "name", "city", "venue_type",
-            "distribution_fit_score", "v_score", "r_score", "m_score",
-            "volume_tier", "quality_tier", "confidence_tier",
-            "rationale", "address"
-        ]].copy()
-
-        # Add validation columns
-        val_export["Human Agree (Y/N)"] = ""
-        val_export["Notes"] = ""
-        val_export["Suggested Rank"] = ""
-
-        val_export.columns = [
-            "Name", "City", "Type",
-            "Score", "V (Volume)", "R (Rating)", "M (Match)",
-            "Volume Tier", "Quality Tier", "Confidence",
-            "Rationale", "Address",
-            "Human Agree (Y/N)", "Notes", "Suggested Rank"
-        ]
-
-        # Display
-        st.dataframe(val_export.head(10), use_container_width=True, hide_index=True)
-
-        st.divider()
-
-        st.markdown("### Validation Instructions")
-        st.markdown("""
-        1. Download the Excel file
-        2. For each venue, fill in:
-           - **Human Agree (Y/N)**: Does this ranking make sense?
-           - **Notes**: Why disagree? What's missing?
-           - **Suggested Rank**: Where should this venue be?
-        3. Focus on obvious errors first
-        4. Save findings for model tuning
-        """)
-
-        # Download
-        from io import BytesIO
-        buffer = BytesIO()
-        val_export.to_excel(buffer, index=False, sheet_name="Validation")
-
-        st.download_button(
-            label="Download Validation Template",
-            data=buffer.getvalue(),
-            file_name=f"validation_{val_city}_{val_type}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-        st.caption("Template includes columns for human feedback.")
     else:
-        st.info("No venues match your criteria.")
+        st.info("No venues match your filters. Try adjusting your criteria.")
 
 
 # =============================================================================
-# Expansion Planner Page
+# EXPANSION PLANNER PAGE
 # =============================================================================
 
 elif page == "Expansion Planner":
@@ -1153,7 +1108,7 @@ elif page == "Expansion Planner":
 
     st.divider()
 
-    # --- Step 1: Market Selection ---
+    # Step 1: Market Selection
     st.subheader("1. Select Markets")
 
     col1, col2 = st.columns(2)
@@ -1177,7 +1132,7 @@ elif page == "Expansion Planner":
 
     st.divider()
 
-    # --- Step 2: Account Input ---
+    # Step 2: Account Input
     st.subheader("2. Enter Your Top Accounts")
 
     input_method = st.radio(
@@ -1206,7 +1161,7 @@ elif page == "Expansion Planner":
             ]
             st.caption(f"{len(accounts_to_process)} accounts entered")
 
-    else:  # CSV Upload
+    else:
         st.caption("Upload a CSV with columns: `name` (required), `place_id` (optional)")
 
         uploaded_file = st.file_uploader(
@@ -1234,7 +1189,7 @@ elif page == "Expansion Planner":
 
     st.divider()
 
-    # --- Step 3: Run Analysis ---
+    # Step 3: Run Analysis
     st.subheader("3. Find Similar Venues")
 
     col1, col2 = st.columns(2)
@@ -1265,16 +1220,14 @@ elif page == "Expansion Planner":
             if "error" in result:
                 st.error(result["error"])
             else:
-                # Store results in session state
                 st.session_state["lookalike_results"] = result
 
-    # --- Display Results ---
+    # Display Results
     if "lookalike_results" in st.session_state:
         result = st.session_state["lookalike_results"]
 
         st.divider()
 
-        # Resolution Report
         res = result["resolution_report"]
         col1, col2, col3 = st.columns(3)
 
@@ -1328,7 +1281,6 @@ elif page == "Expansion Planner":
         results_data = result["results"]
 
         if results_data:
-            # Build display dataframe
             display_rows = []
             for r in results_data:
                 display_rows.append({
@@ -1344,7 +1296,6 @@ elif page == "Expansion Planner":
             results_df = pd.DataFrame(display_rows)
             st.dataframe(results_df, hide_index=True, use_container_width=True)
 
-            # Expandable detail for selected venue
             st.markdown("---")
             st.markdown("**Venue Detail**")
 
@@ -1365,7 +1316,6 @@ elif page == "Expansion Planner":
                     st.metric("Similarity Score", f"{selected['similarity_score']:.0f}/100")
                     st.metric("VIDPS Score", f"{selected['context']['distribution_fit_score']:.0f}")
 
-                # Score breakdown
                 st.markdown("**Score Breakdown**")
                 breakdown = selected["score_breakdown"]
 
@@ -1409,11 +1359,11 @@ elif page == "Expansion Planner":
                     "Download CSV",
                     csv,
                     file_name=f"lookalike_{target_market}_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    type="primary",
                 )
 
             with col2:
-                from io import BytesIO
                 buffer = BytesIO()
                 export_df.to_excel(buffer, index=False, sheet_name="Prospects")
                 st.download_button(
@@ -1431,27 +1381,23 @@ elif page == "Expansion Planner":
 
 
 # =============================================================================
-# Request New City Page
+# REQUEST CITY PAGE
 # =============================================================================
 
-elif page == "Request New City":
+elif page == "Request City":
     st.title("Request New City")
 
     st.write("""
     Don't see the city you need? Request data for a new city.
-
     We'll fetch venue data from Google Places API and score it using our algorithm.
     """)
 
-    # City input
     new_city = st.text_input("City Name", placeholder="e.g., New York, Amsterdam, Tokyo")
     country = st.selectbox("Country", ["USA", "UK", "France", "Germany", "Netherlands", "Japan", "Other"])
 
-    # Estimate
     if new_city:
         st.subheader("Cost Estimate")
 
-        # Rough estimates based on city size
         city_estimates = {
             "small": (500, 1000),
             "medium": (1000, 3000),
@@ -1471,9 +1417,8 @@ elif page == "Request New City":
         else:
             est_venues = city_estimates["large"]
 
-        # Cost calculation
-        discovery_cost = (est_venues[1] / 1000) * 32  # $32 per 1k discovery
-        details_cost = (est_venues[1] / 1000) * 20    # $20 per 1k details
+        discovery_cost = (est_venues[1] / 1000) * 32
+        details_cost = (est_venues[1] / 1000) * 20
         total_cost = discovery_cost + details_cost
 
         col1, col2, col3 = st.columns(3)
@@ -1487,24 +1432,109 @@ elif page == "Request New City":
         with col3:
             st.metric("Time", "2-5 minutes")
 
-        st.warning(f"""
-        **Budget Check:** This would cost approximately ${total_cost:.2f}.
-
-        Current project budget remaining: ~$49
-        """)
+        st.warning(f"**Budget Check:** This would cost approximately ${total_cost:.2f}.")
 
         st.divider()
 
-        # Request button (disabled for now)
         if st.button("Request City Data", disabled=True):
             st.info("City requests are currently disabled. Contact admin to enable.")
 
         st.caption("City requests are currently disabled to manage API costs.")
 
-    # Show existing cities
     st.divider()
     st.subheader("Currently Available Cities")
 
     cities_df = get_database_stats()["by_city"]
     cities_df["city"] = cities_df["city"].str.title()
     st.dataframe(cities_df, use_container_width=True, hide_index=True)
+
+
+# =============================================================================
+# VALIDATION PAGE (Admin Only)
+# =============================================================================
+
+elif page == "Validation (Admin)":
+    st.title("Validation Export")
+    st.caption("Admin tool for model validation")
+
+    st.markdown("""
+    Export top venues for manual validation. Use this to:
+    - Review if rankings make sense
+    - Identify false positives / false negatives
+    - Build a "Golden Set" for sanity checks
+    """)
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        val_city = st.selectbox("City", get_cities(), key="val_city")
+
+    with col2:
+        val_type = st.selectbox(
+            "Venue Type",
+            ["All", "Cocktail Bar", "Wine Bar", "Bar", "Pub", "Restaurant"],
+            key="val_type",
+        )
+        val_type_raw = val_type.lower().replace(" ", "_") if val_type != "All" else None
+
+    with col3:
+        val_count = st.selectbox("Top N venues", [10, 20, 50, 100], index=1)
+
+    val_df = get_venues_filtered(
+        city=val_city if val_city != "All" else None,
+        venue_types=[val_type_raw] if val_type_raw else None,
+        min_score=0,
+        premium_only=False,
+        limit=val_count,
+    )
+
+    if len(val_df) > 0:
+        st.subheader(f"Top {len(val_df)} Venues for Validation")
+
+        val_export = val_df[[
+            "name", "city", "venue_type",
+            "distribution_fit_score", "v_score", "r_score", "m_score",
+            "volume_tier", "quality_tier", "confidence_tier",
+            "rationale", "address"
+        ]].copy()
+
+        val_export["Human Agree (Y/N)"] = ""
+        val_export["Notes"] = ""
+        val_export["Suggested Rank"] = ""
+
+        val_export.columns = [
+            "Name", "City", "Type",
+            "Score", "V (Volume)", "R (Rating)", "M (Match)",
+            "Volume Tier", "Quality Tier", "Confidence",
+            "Rationale", "Address",
+            "Human Agree (Y/N)", "Notes", "Suggested Rank"
+        ]
+
+        st.dataframe(val_export.head(10), use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        st.markdown("### Instructions")
+        st.markdown("""
+        1. Download the Excel file
+        2. For each venue, fill in:
+           - **Human Agree (Y/N)**: Does this ranking make sense?
+           - **Notes**: Why disagree? What's missing?
+           - **Suggested Rank**: Where should this venue be?
+        3. Focus on obvious errors first
+        """)
+
+        buffer = BytesIO()
+        val_export.to_excel(buffer, index=False, sheet_name="Validation")
+
+        st.download_button(
+            label="Download Validation Template",
+            data=buffer.getvalue(),
+            file_name=f"validation_{val_city}_{val_type}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+    else:
+        st.info("No venues match your criteria.")
