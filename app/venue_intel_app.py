@@ -320,8 +320,17 @@ if auth_config:
         cookie_expiry_days=auth_config['cookie']['expiry_days'],
     )
 
-    # Login widget
-    name, authentication_status, username = authenticator.login('main')
+    # Login widget (v0.4.x uses session state)
+    try:
+        authenticator.login()
+    except Exception as e:
+        st.error(f'Authentication error: {e}')
+        st.stop()
+
+    # Check authentication status from session state
+    authentication_status = st.session_state.get('authentication_status')
+    name = st.session_state.get('name')
+    username = st.session_state.get('username')
 
     if authentication_status == False:
         st.error('Username/password is incorrect')
@@ -342,7 +351,7 @@ if auth_config:
         st.info('Please enter your username and password')
         st.stop()
 
-    # User is authenticated - show logout in sidebar later
+    # User is authenticated - get role
     user_role = auth_config['credentials']['usernames'].get(username, {}).get('role', 'viewer')
 else:
     # No auth config - allow access (for development)
