@@ -314,11 +314,10 @@ auth_config = load_auth_config()
 
 if auth_config:
     authenticator = stauth.Authenticate(
-        auth_config['credentials'],
-        auth_config['cookie']['name'],
-        auth_config['cookie']['key'],
-        auth_config['cookie']['expiry_days'],
-        auth_config.get('preauthorized', {})
+        credentials=auth_config['credentials'],
+        cookie_name=auth_config['cookie']['name'],
+        cookie_key=auth_config['cookie']['key'],
+        cookie_expiry_days=auth_config['cookie']['expiry_days'],
     )
 
     # Login widget
