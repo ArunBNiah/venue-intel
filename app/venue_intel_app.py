@@ -560,12 +560,23 @@ nav_options = ["Home", "Explore", "Expansion Planner", "Request City"]
 if admin_mode:
     nav_options.append("Validation (Admin)")
 
+# Initialize session state for navigation
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Home"
+
+# Get default index from session state
+default_index = nav_options.index(st.session_state.current_page) if st.session_state.current_page in nav_options else 0
+
 page = st.sidebar.radio(
     "Navigate",
     nav_options,
-    index=0,
+    index=default_index,
+    key="nav_radio",
     label_visibility="collapsed",
 )
+
+# Update session state when radio changes
+st.session_state.current_page = page
 
 st.sidebar.divider()
 
@@ -661,7 +672,7 @@ if page == "Home":
         </div>
         """, unsafe_allow_html=True)
         if st.button("Go to Explore", type="primary", use_container_width=True):
-            st.query_params["nav"] = "explore"
+            st.session_state.current_page = "Explore"
             st.rerun()
 
     with col2:
@@ -676,7 +687,7 @@ if page == "Home":
         </div>
         """, unsafe_allow_html=True)
         if st.button("Go to Expansion Planner", type="primary", use_container_width=True):
-            st.query_params["nav"] = "expansion"
+            st.session_state.current_page = "Expansion Planner"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -882,6 +893,79 @@ elif page == "Explore":
             high_conf = (df["confidence_tier"] == "medium").sum()
             st.metric("Medium+ Confidence", high_conf)
 
+        # --- Export Section (immediately after results) ---
+        st.markdown(f"""
+        <div class="export-section">
+            <div class="export-title">Export Your Selection</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Build export dataframe
+        export_columns = [
+            "name", "city", "country", "address",
+            "venue_type", "distribution_fit_score",
+            "v_score", "r_score", "m_score",
+            "volume_tier", "quality_tier", "price_tier",
+            "confidence_tier", "is_premium_indicator",
+            "serves_cocktails", "serves_spirits", "serves_wine", "serves_beer",
+            "has_great_cocktails", "has_great_beer", "has_great_wine",
+            "is_upscale", "is_late_night",
+        ]
+        export_names = [
+            "Name", "City", "Country", "Address",
+            "Venue Type", "Distribution Fit Score",
+            "V (Volume)", "R (Rating)", "M (Match)",
+            "Volume Tier", "Quality Tier", "Price Tier",
+            "Confidence", "Premium",
+            "Serves Cocktails", "Serves Spirits", "Serves Wine", "Serves Beer",
+            "Great Cocktails", "Great Beer", "Great Wine",
+            "Upscale", "Late Night",
+        ]
+
+        if "on_worlds_50_best" in df.columns:
+            export_columns.extend([
+                "on_worlds_50_best", "worlds_50_best_rank",
+                "on_asias_50_best", "asias_50_best_rank",
+                "on_north_americas_50_best", "north_americas_50_best_rank",
+            ])
+            export_names.extend([
+                "World's 50 Best", "W50B Rank",
+                "Asia's 50 Best", "A50B Rank",
+                "NA's 50 Best", "NA50B Rank",
+            ])
+
+        export_columns.extend(["rationale", "place_id", "latitude", "longitude"])
+        export_names.extend(["Rationale", "Place ID", "Latitude", "Longitude"])
+
+        export_df = df[[c for c in export_columns if c in df.columns]].copy()
+        export_df.columns = export_names[:len(export_df.columns)]
+
+        st.caption(f"Export includes {len(export_df)} venues with all scores, signals, and metadata.")
+
+        col1, col2, col3 = st.columns([1, 1, 2])
+
+        with col1:
+            csv = export_df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                type="primary",
+                use_container_width=True,
+            )
+
+        with col2:
+            buffer = BytesIO()
+            export_df.to_excel(buffer, index=False, sheet_name="Venues")
+            st.download_button(
+                label="Download Excel",
+                data=buffer.getvalue(),
+                file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
         # Map view
         st.divider()
         st.subheader("Map")
@@ -1013,80 +1097,6 @@ elif page == "Explore":
             st.divider()
             st.markdown("#### Rationale")
             st.info(venue_row['rationale'])
-
-        # --- Export Section ---
-        st.divider()
-        st.markdown(f"""
-        <div class="export-section">
-            <div class="export-title">Export Your Selection</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Build export dataframe
-        export_columns = [
-            "name", "city", "country", "address",
-            "venue_type", "distribution_fit_score",
-            "v_score", "r_score", "m_score",
-            "volume_tier", "quality_tier", "price_tier",
-            "confidence_tier", "is_premium_indicator",
-            "serves_cocktails", "serves_spirits", "serves_wine", "serves_beer",
-            "has_great_cocktails", "has_great_beer", "has_great_wine",
-            "is_upscale", "is_late_night",
-        ]
-        export_names = [
-            "Name", "City", "Country", "Address",
-            "Venue Type", "Distribution Fit Score",
-            "V (Volume)", "R (Rating)", "M (Match)",
-            "Volume Tier", "Quality Tier", "Price Tier",
-            "Confidence", "Premium",
-            "Serves Cocktails", "Serves Spirits", "Serves Wine", "Serves Beer",
-            "Great Cocktails", "Great Beer", "Great Wine",
-            "Upscale", "Late Night",
-        ]
-
-        if "on_worlds_50_best" in df.columns:
-            export_columns.extend([
-                "on_worlds_50_best", "worlds_50_best_rank",
-                "on_asias_50_best", "asias_50_best_rank",
-                "on_north_americas_50_best", "north_americas_50_best_rank",
-            ])
-            export_names.extend([
-                "World's 50 Best", "W50B Rank",
-                "Asia's 50 Best", "A50B Rank",
-                "NA's 50 Best", "NA50B Rank",
-            ])
-
-        export_columns.extend(["rationale", "place_id", "latitude", "longitude"])
-        export_names.extend(["Rationale", "Place ID", "Latitude", "Longitude"])
-
-        export_df = df[[c for c in export_columns if c in df.columns]].copy()
-        export_df.columns = export_names[:len(export_df.columns)]
-
-        st.caption(f"Export includes {len(export_df)} venues with all scores, signals, and metadata.")
-
-        col1, col2, col3 = st.columns([1, 1, 2])
-
-        with col1:
-            csv = export_df.to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
-                type="primary",
-                use_container_width=True,
-            )
-
-        with col2:
-            buffer = BytesIO()
-            export_df.to_excel(buffer, index=False, sheet_name="Venues")
-            st.download_button(
-                label="Download Excel",
-                data=buffer.getvalue(),
-                file_name=f"venue_export_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
 
     else:
         st.info("No venues match your filters. Try adjusting your criteria.")
