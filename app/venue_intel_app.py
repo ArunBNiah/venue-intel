@@ -664,6 +664,11 @@ if admin_mode:
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Home"
 
+# Check for pending navigation from button clicks
+if "navigate_to" in st.session_state:
+    st.session_state.current_page = st.session_state.navigate_to
+    del st.session_state.navigate_to
+
 # Get default index from session state
 default_index = nav_options.index(st.session_state.current_page) if st.session_state.current_page in nav_options else 0
 
@@ -671,7 +676,6 @@ page = st.sidebar.radio(
     "Navigate",
     nav_options,
     index=default_index,
-    key="nav_radio",
     label_visibility="collapsed",
 )
 
@@ -771,8 +775,8 @@ if page == "Home":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Go to Explore", type="primary", use_container_width=True):
-            st.session_state.current_page = "Explore"
+        if st.button("Go to Explore", type="primary", use_container_width=True, key="btn_explore"):
+            st.session_state.navigate_to = "Explore"
             st.rerun()
 
     with col2:
@@ -786,8 +790,8 @@ if page == "Home":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Go to Expansion Planner", type="primary", use_container_width=True):
-            st.session_state.current_page = "Expansion Planner"
+        if st.button("Go to Expansion Planner", type="primary", use_container_width=True, key="btn_expansion"):
+            st.session_state.navigate_to = "Expansion Planner"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
